@@ -1,11 +1,7 @@
 import { useState } from "react"
 import { ethers } from "ethers"
 
-const CONTRACT_ADDRESS = "0x7f06338DAa0D2A0b0D684A8C4dE7898a15a6641d"
-const ABI = [
-  "function addReview(string establishment, string review) public returns(uint256)",
-  "event ReviewAdded(address indexed user, string establishment, uint256 points)"
-]
+import { CONTRACT_ADDRESS, ABI } from "../config"
 
 export default function ReviewForm() {
   const [establishment, setEstablishment] = useState("")
