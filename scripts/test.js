@@ -17,7 +17,7 @@ async function main() {
   // 2. Conectar contrato
   const Syspoints = await ethers.getContractFactory("Syspoints");
   const syspoints = await Syspoints.attach(
-    "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+    "0xe75Dbd09c87de5548bCf135619f1ad1F304F22DF"
   );
 
   // 3. Inputs del usuario
