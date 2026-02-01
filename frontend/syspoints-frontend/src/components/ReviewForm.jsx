@@ -70,7 +70,7 @@ export default function ReviewForm() {
 
             <form onSubmit={submitReview}>
               <div className="mb-3">
-                <label className="form-label">Tienda y/o establecimiento</label>
+                <label className="form-label">Tienda y/o establecimiento:</label>
                 <input
                   className="form-control"
                   value={establishment}
@@ -82,7 +82,7 @@ export default function ReviewForm() {
               </div>
 
               <div className="mb-3">
-                <label className="form-label">Reseña</label>
+                <label className="form-label">Reseña:</label>
                 <textarea
                   className="form-control"
                   rows="4"
