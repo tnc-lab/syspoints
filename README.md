@@ -14,16 +14,18 @@
 
 ## Usage
 
-Syspoints demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+The following is a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
 
 Try running some of the following tasks:
 
 ```shell
+# Displays a Hardhat manual
 npx hardhat help
 
 # Run tests to ensure review logic works
 npx hardhat test
 
+# Generate a detailed report on gas consumption
 REPORT_GAS=true npx hardhat test
 
 # Start a local node for development
@@ -41,4 +43,3 @@ npx hardhat ignition deploy ./ignition/modules/Lock.js
 ## License
 
 This project is licensed under the [MIT License](https://opensource.org) - see the [LICENSE](LICENSE) file for details.
-
