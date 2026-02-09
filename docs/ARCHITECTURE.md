@@ -15,6 +15,20 @@
 ## Current focus
 Backend review indexer and API
 
+## Environment Configuration
+
+Required environment variables:
+- `PORT`
+- `DATABASE_URL`
+- `RPC_URL`
+- `CHAIN_ID`
+- `PRIVATE_KEY`
+
+`DATABASE_URL` format example:
+```text
+postgresql://username:password@host:5432/database_name
+```
+
 ## API Contract (REST)
 
 All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
