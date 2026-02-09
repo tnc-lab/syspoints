@@ -1,0 +1,107 @@
+{
+  "info": {
+    "name": "Syspoints API",
+    "_postman_id": "7a3e1a9f-7b2b-4f1c-9c3f-8b6f4f9a7f01",
+    "description": "API contract per docs/ARCHITECTURE.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000"
+    }
+  ],
+  "item": [
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"wallet_address\": \"0x1234567890abcdef1234567890abcdef12345678\",\n  \"email\": \"user@email.com\",\n  \"name\": \"User\",\n  \"avatar_url\": \"https://example.com/avatar.png\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Establishments",
+      "item": [
+        {
+          "name": "List Establishments",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/establishments", "host": ["{{baseUrl}}"], "path": ["establishments"] }
+          }
+        },
+        {
+          "name": "Create Establishment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/establishments", "host": ["{{baseUrl}}"], "path": ["establishments"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Store\",\n  \"category\": \"restaurant\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "Create Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "test-key-1" }
+            ],
+            "url": { "raw": "{{baseUrl}}/reviews", "host": ["{{baseUrl}}"], "path": ["reviews"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"establishment_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"text...\",\n  \"stars\": 5,\n  \"price\": 90.5,\n  \"purchase_url\": \"https://example.com\",\n  \"tags\": [\"tag1\", \"tag2\"],\n  \"evidence_images\": [\"https://example.com/image1.png\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Review By ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/reviews/:id", "host": ["{{baseUrl}}"], "path": ["reviews", ":id"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Syscoin",
+      "item": [
+        {
+          "name": "Submit Review Hash",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/syscoin/review-hash", "host": ["{{baseUrl}}"], "path": ["syscoin", "review-hash"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"review_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
