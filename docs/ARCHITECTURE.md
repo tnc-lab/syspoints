@@ -138,6 +138,34 @@ All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
 - Errors:
   - `404` not found
 
+### Syscoin
+
+`POST /syscoin/review-hash`
+- Purpose: submit a review hash to Syscoin devnet asynchronously.
+- Request body:
+```json
+{
+  "review_id": "uuid"
+}
+```
+- Response `202`:
+```json
+{
+  "review_id": "uuid",
+  "review_hash": "hash",
+  "payload": {
+    "review_id": "uuid",
+    "user_id": "uuid",
+    "establishment_id": "uuid",
+    "timestamp": "2026-02-09T12:00:00Z",
+    "price": 90.5
+  }
+}
+```
+- Errors:
+  - `400` validation error
+  - `404` review not found
+
 ## Idempotency and Duplicates
 
 - `POST /reviews` should support `Idempotency-Key` header. If the same key is reused for the same user, the backend returns the original `201` response.

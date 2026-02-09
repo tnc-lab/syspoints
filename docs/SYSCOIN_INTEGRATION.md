@@ -62,10 +62,38 @@ The JSON used for hashing includes:
 ## Endpoints Dependent on Syscoin
 
 ### Definido en los docs
-- No public API endpoints are defined for blockchain operations.
+- `POST /syscoin/review-hash` submits a review hash to Syscoin asynchronously.
 
 ### Pendiente de definicion
-- If a public endpoint is required, define it explicitly (path, body, response, errors), for example a hash submission or status endpoint.
+- Contract address, ABI, and method for storing the hash on-chain.
+
+## API Contract (Syscoin)
+
+`POST /syscoin/review-hash`
+- Purpose: submit a review hash to Syscoin devnet asynchronously.
+- Request body:
+```json
+{
+  "review_id": "uuid"
+}
+```
+- Response `202`:
+```json
+{
+  "review_id": "uuid",
+  "review_hash": "hash",
+  "payload": {
+    "review_id": "uuid",
+    "user_id": "uuid",
+    "establishment_id": "uuid",
+    "timestamp": "2026-02-09T12:00:00Z",
+    "price": 90.5
+  }
+}
+```
+- Errors:
+  - `400` validation error
+  - `404` review not found
 
 ## Common Integration Errors
 
