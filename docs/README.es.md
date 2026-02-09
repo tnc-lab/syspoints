@@ -1,4 +1,4 @@
-# Syspoints
+# Syspoints ⠎⠽⠎⠏⠕⠊⠝⠞⠎
 
 ![Syspoints](https://i.ibb.co/fY7fhskW/syspoints-banner.png)
 
