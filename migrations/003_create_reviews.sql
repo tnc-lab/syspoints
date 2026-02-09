@@ -5,29 +5,29 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE TABLE reviews (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
-    establishment_external_id TEXT NOT NULL,
+    establishment_id UUID NOT NULL REFERENCES establishments (id) ON DELETE RESTRICT,
     description TEXT NOT NULL,
     stars SMALLINT NOT NULL,
     price NUMERIC(12, 2) NOT NULL,
     purchase_url TEXT NOT NULL,
     tags TEXT[] NOT NULL,
     points_awarded INTEGER NOT NULL DEFAULT 0,
-    review_hash BYTEA NOT NULL,
+    review_hash TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT reviews_description_min_length CHECK (char_length(description) >= 20),
+    CONSTRAINT reviews_description_min_length CHECK (char_length(description) >= 1),
     CONSTRAINT reviews_stars_range CHECK (stars BETWEEN 1 AND 5),
-    CONSTRAINT reviews_price_non_negative CHECK (price >= 0),
+    CONSTRAINT reviews_price_non_negative CHECK (price > 0),
     CONSTRAINT reviews_purchase_url_non_empty CHECK (char_length(trim(purchase_url)) > 0),
     CONSTRAINT reviews_points_non_negative CHECK (points_awarded >= 0),
     CONSTRAINT reviews_tags_non_empty CHECK (array_length(tags, 1) > 0)
 );
 
 COMMENT ON CONSTRAINT reviews_description_min_length ON reviews IS
-    'Ensures reviews include a meaningful description of at least 20 characters.';
+    'Ensures reviews include a non-empty description.';
 COMMENT ON CONSTRAINT reviews_stars_range ON reviews IS
     'Ensures review stars are within the 1-5 range.';
 COMMENT ON CONSTRAINT reviews_price_non_negative ON reviews IS
-    'Ensures review price is not negative.';
+    'Ensures review price is greater than 0.';
 COMMENT ON CONSTRAINT reviews_purchase_url_non_empty ON reviews IS
     'Ensures purchase URL is provided for the review.';
 COMMENT ON CONSTRAINT reviews_points_non_negative ON reviews IS
@@ -40,18 +40,13 @@ CREATE UNIQUE INDEX reviews_review_hash_key ON reviews (review_hash);
 CREATE TABLE review_evidence (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     review_id UUID NOT NULL REFERENCES reviews (id) ON DELETE RESTRICT,
-    evidence_url TEXT NOT NULL,
-    position INTEGER NOT NULL,
-    image_hash BYTEA NOT NULL,
+    image_url TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT review_evidence_url_non_empty CHECK (char_length(trim(evidence_url)) > 0),
-    CONSTRAINT review_evidence_position_positive CHECK (position > 0)
+    CONSTRAINT review_evidence_url_non_empty CHECK (char_length(trim(image_url)) > 0)
 );
 
 COMMENT ON CONSTRAINT review_evidence_url_non_empty ON review_evidence IS
     'Ensures evidence entries include a non-empty URL.';
-COMMENT ON CONSTRAINT review_evidence_position_positive ON review_evidence IS
-    'Ensures evidence entries include a positive ordering position.';
 
 CREATE OR REPLACE FUNCTION prevent_mutation()
 RETURNS TRIGGER
