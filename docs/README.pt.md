@@ -12,6 +12,13 @@
 - **Participação Incentivada:** Ganhe **Tokens Syspoints** como recompensa por avaliações verificadas e de alta qualidade.
 - **Reputação Transparente:** Aproveite a transparência da blockchain para garantir que todas as avaliações sejam autênticas e invioláveis.
 
+## Documentação do Projeto 
+
+- **[Arquitetura](architecture.md):** Visão geral da infraestrutura do sistema e organização dos compenentes usando **diagramas C4 Container**.
+- **[Regras de Negócio](business_rules.md):** Mapeamento detalhado dos fluxos lógicos e das regras centrais que governam a aplicação via **fluxogramas**.
+- **[Modelo de Dados](data_model.md):** Documentação do esquema do banco de dados apresentando **diagrams de Entidade-Relacionamento (ER)**.
+- **[Integração Syscoin](syscoin_integration.md):** Guia técnico sobre protocolos de comunicação blockchain e **diagramas de sequência de transações**.
+
 ## Uso
 
 A seguir, apresentamos um caso de uso básico do Hardhat. Ele inclui um contrato de exemplo, um teste para esse contrato e um módulo Hardhat Ignition que implementa esse contrato.

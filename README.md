@@ -12,6 +12,13 @@
 - **Incentivized Participation:** Earn **Syspoints Tokens** as a reward for verified and high-quality reviews.
 - **Transparent Reputation:** Leverage blockchain transparency to ensure all ratings are authentic and tamper-proof.
 
+## Project Documentation
+
+- **[Architecture](docs/architecture.md):** Overview of the system infrastructure and component organization using **C4 Container diagrams**.
+- **[Business Rules](docs/business_rules.md):** Detailed mapping of logical workflows and the core rules governing the application via **flowcharts**.
+- **[Data Model](docs/data_model.md):** Database schema documentation featuring **Entity-Relationship (ER) diagrams**.
+- **[Syscoin Integration](docs/syscoin_integration.md):** Technical guide on blockchain communication protocols and transaction **sequence diagrams**.
+
 ## Usage
 
 The following is a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
