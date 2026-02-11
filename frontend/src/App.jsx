@@ -74,6 +74,7 @@ function App() {
   const [modalVisible, setModalVisible] = useState(false)
   const [walletModalMode, setWalletModalMode] = useState("connect")
   const [walletModalStatus, setWalletModalStatus] = useState("")
+  const [walletFlowStep, setWalletFlowStep] = useState("idle")
   const [showTxModal, setShowTxModal] = useState(false)
   const [txModalVisible, setTxModalVisible] = useState(false)
   const [reviewTx, setReviewTx] = useState({
@@ -144,14 +145,15 @@ function App() {
   const [editingEstablishment, setEditingEstablishment] = useState({ name: "", category: "", image_url: "" })
   const [savingEstablishmentEdition, setSavingEstablishmentEdition] = useState(false)
 
-  const provider = useMemo(() => {
+  const getWalletProvider = () => {
     if (!window.ethereum) return null
     return new ethers.BrowserProvider(window.ethereum)
-  }, [])
+  }
+
   const readProvider = useMemo(() => {
-    if (RPC_URL) return new ethers.JsonRpcProvider(RPC_URL)
-    return provider
-  }, [provider])
+    if (!RPC_URL) return null
+    return new ethers.JsonRpcProvider(RPC_URL)
+  }, [])
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -168,6 +170,7 @@ function App() {
 
   useEffect(() => {
     const updateNetwork = async () => {
+      const provider = getWalletProvider()
       if (!provider) return
       try {
         const network = await provider.getNetwork()
@@ -178,7 +181,7 @@ function App() {
     }
 
     updateNetwork()
-  }, [provider])
+  }, [])
 
   useEffect(() => {
     if (!window.ethereum) return
@@ -313,7 +316,7 @@ function App() {
                 symbol: "tSYS",
                 decimals: 18,
               },
-              blockExplorerUrls: [],
+              blockExplorerUrls: EXPLORER_TX_BASE_URL ? [String(EXPLORER_TX_BASE_URL).replace(/\/tx\/?$/i, "")] : [],
             },
           ],
         })
@@ -353,6 +356,7 @@ function App() {
 
   const signInWithWallet = async (address, fallbackName = "") => {
     const normalizedAddress = normalizeAddress(address)
+    const provider = getWalletProvider()
     if (!normalizedAddress || !provider) {
       throw new Error("Connect your wallet first.")
     }
@@ -393,8 +397,14 @@ function App() {
     }
 
     setWalletBusy(true)
+    setWalletFlowStep("network")
     setWalletModalStatus("")
     try {
+      setWalletModalStatus("Switching network to Syscoin Devnet...")
+      await ensureNetwork()
+
+      setWalletFlowStep("accounts")
+      setWalletModalStatus("Requesting wallet account...")
       const accounts = await window.ethereum.request({ method: "eth_requestAccounts" })
       const address = normalizeAddress(accounts?.[0] || "")
       if (!address) {
@@ -402,18 +412,23 @@ function App() {
       }
 
       setWalletAddress(address)
+      setWalletFlowStep("signin")
+      setWalletModalStatus("Please sign the login message in your wallet.")
       const signInResult = await signInWithWallet(address)
 
       if (signInResult.needsRegistration) {
         setWalletModalMode("register")
+        setWalletFlowStep("idle")
         setWalletModalStatus("Wallet conectada. Completa el registro para continuar.")
         setAuthStatus("Wallet connected. Complete your registration.")
         return
       }
 
+      setWalletFlowStep("idle")
       setWalletModalStatus("Wallet conectada correctamente.")
       setTimeout(() => closeWalletModal(), 250)
     } catch (error) {
+      setWalletFlowStep("idle")
       const message = getWalletErrorMessage(error, "Wallet connection failed.")
       setWalletModalStatus(message)
       setAuthStatus(message)
@@ -448,6 +463,7 @@ function App() {
   const closeWalletModal = () => {
     setWalletModalMode("connect")
     setWalletModalStatus("")
+    setWalletFlowStep("idle")
     setWalletBusy(false)
     setModalVisible(false)
     setTimeout(() => setShowWalletModal(false), 200)
@@ -1022,7 +1038,7 @@ function App() {
       return
     }
 
-    const providerCandidates = [readProvider, provider].filter(Boolean)
+    const providerCandidates = [readProvider, getWalletProvider()].filter(Boolean)
     if (providerCandidates.length === 0 || !CONTRACT_ADDRESS) {
       setReviewChainInfo({
         loading: false,
@@ -1166,6 +1182,10 @@ function App() {
 
       // On-chain anchoring (user pays gas)
       if (reviewId) {
+        const provider = getWalletProvider()
+        if (!provider) {
+          throw new Error("Wallet provider not found.")
+        }
         const signer = await provider.getSigner()
         const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer)
         setReviewTx((prev) => ({
@@ -1309,13 +1329,31 @@ function App() {
                 <div className="pill" style={{ marginBottom: "12px" }}>{detectProvider()}</div>
                 <div className="wallet-grid">
                   <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy ? "Connecting..." : "MetaMask"}
+                    {walletBusy
+                      ? walletFlowStep === "network"
+                        ? "Switching network..."
+                        : walletFlowStep === "accounts"
+                          ? "Requesting account..."
+                          : "Waiting signature..."
+                      : "MetaMask"}
                   </button>
                   <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy ? "Connecting..." : "PaliWallet"}
+                    {walletBusy
+                      ? walletFlowStep === "network"
+                        ? "Switching network..."
+                        : walletFlowStep === "accounts"
+                          ? "Requesting account..."
+                          : "Waiting signature..."
+                      : "PaliWallet"}
                   </button>
                   <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy ? "Connecting..." : "Other Wallet"}
+                    {walletBusy
+                      ? walletFlowStep === "network"
+                        ? "Switching network..."
+                        : walletFlowStep === "accounts"
+                          ? "Requesting account..."
+                          : "Waiting signature..."
+                      : "Other Wallet"}
                   </button>
                 </div>
               </>
