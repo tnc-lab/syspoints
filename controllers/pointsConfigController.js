@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { pointsConfigService } = require('../services/pointsConfigService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { isNonEmptyString, isValidUrl } = require('../utils/validation');
+const { getUploadDir, buildPublicUploadUrl } = require('../utils/uploadStorage');
 
 const FIELDS = [
   'image_points_yes',
@@ -90,11 +91,11 @@ async function uploadDefaultAvatar(req, res, next) {
     const safeBaseName = (file_name || 'default-avatar').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'default-avatar';
     const fileName = `${safeBaseName}-${crypto.randomUUID()}.${extension}`;
 
-    const uploadDir = path.join(__dirname, '..', 'uploads', 'config');
+    const uploadDir = getUploadDir('config');
     await fs.mkdir(uploadDir, { recursive: true });
     await fs.writeFile(path.join(uploadDir, fileName), buffer);
 
-    const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/config/${fileName}`;
+    const avatarUrl = buildPublicUploadUrl(req, 'config', fileName);
     const updated = await pointsConfigService.setDefaultUserAvatar(avatarUrl);
     res.status(201).json({ default_user_avatar_url: updated?.default_user_avatar_url || avatarUrl });
   } catch (err) {
