@@ -1,0 +1,221 @@
+{
+  "info": {
+    "name": "Syspoints API",
+    "_postman_id": "7a3e1a9f-7b2b-4f1c-9c3f-8b6f4f9a7f01",
+    "description": "API contract per docs/ARCHITECTURE.md",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "{{baseUrl_local}}"
+    },
+    {
+      "key": "baseUrl_local",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "baseUrl_prod",
+      "value": "https://syspoints-dev.vercel.app"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Issue Nonce",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/auth/nonce", "host": ["{{baseUrl}}"], "path": ["auth", "nonce"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"wallet_address\": \"0x1234567890abcdef1234567890abcdef12345678\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Issue Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/auth/token", "host": ["{{baseUrl}}"], "path": ["auth", "token"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"wallet_address\": \"0x1234567890abcdef1234567890abcdef12345678\",\n  \"signature\": \"0x...\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"wallet_address\": \"0x1234567890abcdef1234567890abcdef12345678\",\n  \"email\": \"user@email.com\",\n  \"name\": \"User\",\n  \"avatar_url\": \"https://example.com/avatar.png\"\n}"
+            }
+          }
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/users", "host": ["{{baseUrl}}"], "path": ["users"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Establishments",
+      "item": [
+        {
+          "name": "List Establishments",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/establishments", "host": ["{{baseUrl}}"], "path": ["establishments"] }
+          }
+        },
+        {
+          "name": "Create Establishment",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/establishments", "host": ["{{baseUrl}}"], "path": ["establishments"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Store\",\n  \"category\": \"restaurant\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Reviews",
+      "item": [
+        {
+          "name": "Create Review",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Idempotency-Key", "value": "test-key-1" }
+            ],
+            "url": { "raw": "{{baseUrl}}/reviews", "host": ["{{baseUrl}}"], "path": ["reviews"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"user_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"establishment_id\": \"00000000-0000-0000-0000-000000000000\",\n  \"description\": \"text...\",\n  \"stars\": 5,\n  \"price\": 90.5,\n  \"purchase_url\": \"https://example.com\",\n  \"tags\": [\"tag1\", \"tag2\"],\n  \"evidence_images\": [\"https://example.com/image1.png\"]\n}"
+            }
+          }
+        },
+        {
+          "name": "List Reviews",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/reviews?page=1&page_size=20&sort=stars_desc", "host": ["{{baseUrl}}"], "path": ["reviews"], "query": [
+              { "key": "page", "value": "1" },
+              { "key": "page_size", "value": "20" },
+              { "key": "sort", "value": "stars_desc" }
+            ] }
+          }
+        },
+        {
+          "name": "Get Review By ID",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/reviews/:id", "host": ["{{baseUrl}}"], "path": ["reviews", ":id"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Syscoin",
+      "item": [
+        {
+          "name": "Submit Review Hash",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/syscoin/review-hash", "host": ["{{baseUrl}}"], "path": ["syscoin", "review-hash"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"review_id\": \"00000000-0000-0000-0000-000000000000\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Leaderboard",
+      "item": [
+        {
+          "name": "Get Leaderboard",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/leaderboard?page=1&page_size=20", "host": ["{{baseUrl}}"], "path": ["leaderboard"], "query": [
+              { "key": "page", "value": "1" },
+              { "key": "page_size", "value": "20" }
+            ] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "item": [
+        {
+          "name": "Get Points Config",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/admin/points-config", "host": ["{{baseUrl}}"], "path": ["admin", "points-config"] }
+          }
+        },
+        {
+          "name": "Update Points Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/admin/points-config", "host": ["{{baseUrl}}"], "path": ["admin", "points-config"] },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"image_points_yes\": 1,\n  \"image_points_no\": 0,\n  \"description_points_gt_200\": 2,\n  \"description_points_lte_200\": 1,\n  \"stars_points_yes\": 1,\n  \"stars_points_no\": 0,\n  \"price_points_lt_100\": 1,\n  \"price_points_gte_100\": 2\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,23 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-contract Syspoints {
-    event ReviewAdded(
+contract SyspointsReviews {
+    event ReviewAnchored(
         address indexed user,
-        string establishment,
-        uint256 points
+        bytes32 indexed reviewHash,
+        bytes32 indexed establishmentId,
+        uint256 timestamp
     );
 
-    function addReview(
-        string memory establishment,
-        string memory review
-    ) public returns (uint256) {
-        require(bytes(establishment).length > 0, "Empty establishment");
-        require(bytes(review).length > 0, "Empty review");
+    function anchorReview(
+        address user,
+        bytes32 reviewHash,
+        bytes32 establishmentId
+    ) external {
+        require(user != address(0), "Invalid user");
+        require(reviewHash != bytes32(0), "Invalid hash");
+        require(establishmentId != bytes32(0), "Invalid establishment");
 
-        uint256 points = 10;
-
-        emit ReviewAdded(msg.sender, establishment, points);
-        return points;
+        emit ReviewAnchored(user, reviewHash, establishmentId, block.timestamp);
     }
 }

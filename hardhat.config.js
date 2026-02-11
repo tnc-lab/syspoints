@@ -9,9 +9,9 @@ module.exports = {
     localhost: {
       url: "http://127.0.0.1:8545"
     },
-    tanenbaum: {
-      url: "https://rpc.tanenbaum.io",
-      chainId: 5700,
+    devnet: {
+      url: process.env.RPC_URL,
+      chainId: Number(process.env.CHAIN_ID),
       accounts: PRIVATE_KEY ? [PRIVATE_KEY] : []
     }
   }
