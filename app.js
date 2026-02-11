@@ -1,5 +1,4 @@
 const express = require('express');
-const path = require('path');
 const { errorHandler } = require('./middlewares/errorHandler');
 const { usersRouter } = require('./routes/users');
 const { establishmentsRouter } = require('./routes/establishments');
@@ -10,6 +9,7 @@ const { authRouter } = require('./routes/auth');
 const { swaggerSpec } = require('./config/swagger');
 const { adminRouter } = require('./routes/admin');
 const { healthRouter } = require('./routes/health');
+const { getUploadsBaseDir } = require('./utils/uploadStorage');
 const cors = require('cors');
 
 const app = express();
@@ -19,7 +19,7 @@ app.use(cors({
   origin: process.env.CORS_ORIGIN ? process.env.CORS_ORIGIN.split(',').map(v => v.trim()) : true,
   credentials: true,
 }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(getUploadsBaseDir()));
 
 app.get('/openapi.json', (req, res) => {
   res.json(swaggerSpec);

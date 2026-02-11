@@ -1,9 +1,10 @@
-const path = require('path');
 const fs = require('fs/promises');
 const crypto = require('crypto');
+const path = require('path');
 const { establishmentService } = require('../services/establishmentService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { isNonEmptyString, isValidUrl } = require('../utils/validation');
+const { getUploadDir, buildPublicUploadUrl } = require('../utils/uploadStorage');
 
 const ALLOWED_IMAGE_MIME = {
   'image/jpeg': 'jpg',
@@ -107,11 +108,11 @@ async function uploadEstablishmentImage(req, res, next) {
     const safeBaseName = (file_name || 'establishment').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'establishment';
     const fileName = `${safeBaseName}-${crypto.randomUUID()}.${extension}`;
 
-    const uploadDir = path.join(__dirname, '..', 'uploads', 'establishments');
+    const uploadDir = getUploadDir('establishments');
     await fs.mkdir(uploadDir, { recursive: true });
     await fs.writeFile(path.join(uploadDir, fileName), buffer);
 
-    const imageUrl = `${req.protocol}://${req.get('host')}/uploads/establishments/${fileName}`;
+    const imageUrl = buildPublicUploadUrl(req, 'establishments', fileName);
     res.status(201).json({ image_url: imageUrl });
   } catch (err) {
     next(err);
