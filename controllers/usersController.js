@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { userService } = require('../services/userService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { isNonEmptyString, isValidEmail, isValidUrl } = require('../utils/validation');
+const { getUploadDir, buildPublicUploadUrl } = require('../utils/uploadStorage');
 
 const ALLOWED_AVATAR_MIME = {
   'image/jpeg': 'jpg',
@@ -137,11 +138,11 @@ async function uploadMyAvatar(req, res, next) {
     const safeBaseName = (file_name || 'avatar').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 40) || 'avatar';
     const fileName = `${safeBaseName}-${crypto.randomUUID()}.${extension}`;
 
-    const uploadDir = path.join(__dirname, '..', 'uploads', 'avatars');
+    const uploadDir = getUploadDir('avatars');
     await fs.mkdir(uploadDir, { recursive: true });
     await fs.writeFile(path.join(uploadDir, fileName), buffer);
 
-    const avatarUrl = `${req.protocol}://${req.get('host')}/uploads/avatars/${fileName}`;
+    const avatarUrl = buildPublicUploadUrl(req, 'avatars', fileName);
     res.status(201).json({ avatar_url: avatarUrl });
   } catch (err) {
     next(err);
