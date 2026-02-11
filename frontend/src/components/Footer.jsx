@@ -1,9 +1,7 @@
 export default function Footer() {
   return (
-    <footer className="bg-light py-3 mt-auto">
-      <div className="container text-center text-muted small">
-        Built for Syscoin Hackathon · Syspoints MVP
-      </div>
+    <footer className="footer">
+      Built for Syscoin · Syspoints Web3 Reviews
     </footer>
   )
 }

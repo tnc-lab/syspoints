@@ -2,6 +2,7 @@ async function createReview(client, {
   id,
   user_id,
   establishment_id,
+  title,
   description,
   stars,
   price,
@@ -15,6 +16,7 @@ async function createReview(client, {
       id,
       user_id,
       establishment_id,
+      title,
       description,
       stars,
       price,
@@ -23,12 +25,13 @@ async function createReview(client, {
       points_awarded,
       review_hash
     )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-     RETURNING id, user_id, establishment_id, description, stars, price, purchase_url, tags, points_awarded, review_hash, created_at`,
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     RETURNING id, user_id, establishment_id, title, description, stars, price, purchase_url, tags, points_awarded, review_hash, created_at`,
     [
       id,
       user_id,
       establishment_id,
+      title,
       description,
       stars,
       price,
@@ -44,7 +47,7 @@ async function createReview(client, {
 
 async function findById(dbClient, id) {
   const reviewResult = await dbClient.query(
-    `SELECT id, user_id, establishment_id, description, stars, price, purchase_url, tags, points_awarded, review_hash, created_at
+    `SELECT id, user_id, establishment_id, title, description, stars, price, purchase_url, tags, points_awarded, review_hash, created_at
      FROM reviews
      WHERE id = $1`,
     [id]
@@ -100,6 +103,7 @@ async function listReviews(dbClient, { limit, offset, establishmentId, sort }) {
       r.id,
       r.user_id,
       r.establishment_id,
+      r.title,
       r.description,
       r.stars,
       r.price,

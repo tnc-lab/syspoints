@@ -35,12 +35,25 @@ async function findById(id) {
   return result.rows[0] || null;
 }
 
+async function updateById(id, { name, email, avatar_url }) {
+  const result = await query(
+    `UPDATE users
+     SET name = $2,
+         email = $3,
+         avatar_url = $4
+     WHERE id = $1
+     RETURNING id, wallet_address, email, name, avatar_url, role, created_at`,
+    [id, name, email, avatar_url]
+  );
+  return result.rows[0] || null;
+}
+
 async function setAuthNonce(userId, nonce, expiresAt) {
   const result = await query(
     `UPDATE users
      SET auth_nonce = $2, auth_nonce_expires_at = $3
      WHERE id = $1
-     RETURNING id, wallet_address, email, role, auth_nonce, auth_nonce_expires_at`,
+     RETURNING id, wallet_address, email, name, role, auth_nonce, auth_nonce_expires_at`,
     [userId, nonce, expiresAt]
   );
   return result.rows[0] || null;
@@ -48,7 +61,7 @@ async function setAuthNonce(userId, nonce, expiresAt) {
 
 async function findAuthByWallet(walletAddress) {
   const result = await query(
-    `SELECT id, wallet_address, email, role, auth_nonce, auth_nonce_expires_at
+    `SELECT id, wallet_address, email, name, role, auth_nonce, auth_nonce_expires_at
      FROM users
      WHERE wallet_address = $1`,
     [walletAddress]
@@ -58,7 +71,7 @@ async function findAuthByWallet(walletAddress) {
 
 async function findAuthByEmail(email) {
   const result = await query(
-    `SELECT id, wallet_address, email, role, auth_nonce, auth_nonce_expires_at
+    `SELECT id, wallet_address, email, name, role, auth_nonce, auth_nonce_expires_at
      FROM users
      WHERE email = $1`,
     [email]
@@ -72,6 +85,7 @@ module.exports = {
   createUser,
   listUsers,
   findById,
+  updateById,
   setAuthNonce,
   findAuthByWallet,
   findAuthByEmail,

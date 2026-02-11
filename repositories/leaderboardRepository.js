@@ -3,11 +3,21 @@ async function listLeaderboard(dbClient, { limit, offset }) {
     `SELECT
       u.id AS user_id,
       u.name,
-      u.avatar_url,
+      COALESCE(
+        NULLIF(BTRIM(u.avatar_url), ''),
+        pc.default_user_avatar_url
+      ) AS avatar_url,
       COALESCE(SUM(r.points_awarded), 0)::int AS total_points
     FROM users u
+    LEFT JOIN LATERAL (
+      SELECT default_user_avatar_url
+      FROM points_config
+      WHERE NULLIF(BTRIM(default_user_avatar_url), '') IS NOT NULL
+      ORDER BY created_at DESC
+      LIMIT 1
+    ) pc ON TRUE
     LEFT JOIN reviews r ON r.user_id = u.id
-    GROUP BY u.id
+    GROUP BY u.id, pc.default_user_avatar_url
     ORDER BY total_points DESC, u.created_at DESC
     LIMIT $1 OFFSET $2`,
     [limit, offset]

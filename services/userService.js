@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { Wallet } = require('ethers');
-const { findByEmail, findByWallet, createUser, listUsers } = require('../repositories/userRepository');
+const { findByEmail, findByWallet, createUser, listUsers, findById, updateById } = require('../repositories/userRepository');
 const { ApiError } = require('../middlewares/errorHandler');
 
 async function createUserService({ wallet_address, email, name, avatar_url }) {
@@ -36,9 +36,32 @@ async function createUserService({ wallet_address, email, name, avatar_url }) {
   });
 }
 
+async function updateUserProfileService(userId, { name, email, avatar_url }) {
+  const existingUser = await findById(userId);
+  if (!existingUser) {
+    throw new ApiError(404, 'user not found');
+  }
+
+  const normalizedEmail = email || null;
+  if (normalizedEmail) {
+    const existingEmail = await findByEmail(normalizedEmail);
+    if (existingEmail && existingEmail.id !== userId) {
+      throw new ApiError(409, 'email already exists');
+    }
+  }
+
+  return updateById(userId, {
+    name,
+    email: normalizedEmail,
+    avatar_url,
+  });
+}
+
 module.exports = {
   userService: {
     createUser: createUserService,
     listUsers,
+    findById,
+    updateUserProfile: updateUserProfileService,
   },
 };
