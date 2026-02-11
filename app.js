@@ -16,7 +16,11 @@ const app = express();
 
 app.use(express.json());
 
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get('/openapi.json', (req, res) => {
+  res.json(swaggerSpec);
+});
+
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(null, { swaggerUrl: '/openapi.json' }));
 
 app.get('/', (req, res) => {
   res.redirect('/docs');
