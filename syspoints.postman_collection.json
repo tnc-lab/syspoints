@@ -8,7 +8,15 @@
   "variable": [
     {
       "key": "baseUrl",
+      "value": "{{baseUrl_local}}"
+    },
+    {
+      "key": "baseUrl_local",
       "value": "http://localhost:3000"
+    },
+    {
+      "key": "baseUrl_prod",
+      "value": "https://syspoints-dev.vercel.app"
     },
     {
       "key": "token",
