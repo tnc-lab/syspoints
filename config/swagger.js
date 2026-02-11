@@ -10,7 +10,7 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:3000',
+        url: process.env.BASE_URL || 'http://localhost:3000',
       },
     ],
     components: {
@@ -619,6 +619,50 @@ swaggerSpec.paths = {
         404: {
           description: 'Not found',
           content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+      },
+    },
+  },
+  '/health': {
+    get: {
+      summary: 'Health check',
+      responses: {
+        200: {
+          description: 'OK',
+          content: {
+            'application/json': {
+              examples: {
+                ok: { value: { status: 'ok' } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  '/health/db': {
+    get: {
+      summary: 'Database health check',
+      responses: {
+        200: {
+          description: 'OK',
+          content: {
+            'application/json': {
+              examples: {
+                ok: { value: { status: 'ok', db: 'up' } },
+              },
+            },
+          },
+        },
+        500: {
+          description: 'DB down',
+          content: {
+            'application/json': {
+              examples: {
+                down: { value: { status: 'error', db: 'down' } },
+              },
+            },
+          },
         },
       },
     },

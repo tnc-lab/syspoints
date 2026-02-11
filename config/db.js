@@ -3,7 +3,8 @@ const { requireEnv } = require('./env');
 
 function buildPoolConfig() {
   const databaseUrl = requireEnv('DATABASE_URL');
-  return { connectionString: databaseUrl };
+  const max = Number(process.env.PGPOOL_MAX || 1);
+  return { connectionString: databaseUrl, max };
 }
 
 const pool = new Pool(buildPoolConfig());

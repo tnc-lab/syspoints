@@ -36,6 +36,24 @@ postgresql://username:password@host:5432/database_name
 
 All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
 
+### Health
+
+`GET /health`
+- Response `200`:
+```json
+{ "status": "ok" }
+```
+
+`GET /health/db`
+- Response `200`:
+```json
+{ "status": "ok", "db": "up" }
+```
+- Response `500`:
+```json
+{ "status": "error", "db": "down" }
+```
+
 ## Authentication
 
 ### Wallet-signature login

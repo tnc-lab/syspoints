@@ -10,6 +10,7 @@ const { authenticate } = require('./middlewares/auth');
 const swaggerUi = require('swagger-ui-express');
 const { swaggerSpec } = require('./config/swagger');
 const { adminRouter } = require('./routes/admin');
+const { healthRouter } = require('./routes/health');
 
 const app = express();
 
@@ -25,7 +26,8 @@ app.use('/reviews', reviewsRouter);
 app.use('/syscoin', syscoinRouter);
 app.use('/leaderboard', leaderboardRouter);
 app.use('/admin', adminRouter);
+app.use('/health', healthRouter);
 
 app.use(errorHandler);
 
-module.exports = { app };
+module.exports = app;
