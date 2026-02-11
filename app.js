@@ -4,15 +4,27 @@ const { usersRouter } = require('./routes/users');
 const { establishmentsRouter } = require('./routes/establishments');
 const { reviewsRouter } = require('./routes/reviews');
 const { syscoinRouter } = require('./routes/syscoin');
+const { leaderboardRouter } = require('./routes/leaderboard');
+const { authRouter } = require('./routes/auth');
+const { authenticate } = require('./middlewares/auth');
+const swaggerUi = require('swagger-ui-express');
+const { swaggerSpec } = require('./config/swagger');
+const { adminRouter } = require('./routes/admin');
 
 const app = express();
 
 app.use(express.json());
 
+app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+app.use('/auth', authRouter);
+
 app.use('/users', usersRouter);
 app.use('/establishments', establishmentsRouter);
 app.use('/reviews', reviewsRouter);
 app.use('/syscoin', syscoinRouter);
+app.use('/leaderboard', leaderboardRouter);
+app.use('/admin', adminRouter);
 
 app.use(errorHandler);
 

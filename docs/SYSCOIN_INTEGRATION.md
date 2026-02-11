@@ -5,6 +5,7 @@
 - Do NOT store full review data on blockchain.
 - Backend remains the source of truth.
 - Blockchain interaction is asynchronous.
+- On-chain event includes block timestamp.
 
 ## Hash Content (Definido en los docs)
 The JSON used for hashing includes:
@@ -13,6 +14,11 @@ The JSON used for hashing includes:
 - establishment_id
 - timestamp
 - price
+
+Hashing method
+- Hash is computed using keccak256 with fixed field order:
+  - review_id, user_id, establishment_id, timestamp, price (all as strings)
+- establishment_id is also hashed on-chain as `establishment_id_hash = keccak256(establishment_id)`.
 
 ## Network Configuration
 
@@ -23,14 +29,14 @@ The JSON used for hashing includes:
 | RPC_URL | https://rpc-pob.dev11.top | EVM JSON-RPC endpoint |
 | CHAIN_ID | 57042 | EVM chain id |
 | PRIVATE_KEY | present (redacted) | Used to sign transactions |
+| CONTRACT_ADDRESS | set | Contract address for Syspoints on devnet |
 
 ### Pendiente de definicion
 
 | Item | Status | Notes |
 | --- | --- | --- |
 | Network name | missing | Not present in `.env` |
-| Contract address | missing | No contract specified |
-| Contract ABI / method | missing | No ABI or method specified |
+| Contract ABI / method | defined in repo | `anchorReview(address user, bytes32 reviewHash, bytes32 establishmentId)` |
 | Gas strategy | missing | No policy defined |
 | Confirmations required | missing | Not specified |
 
@@ -39,10 +45,11 @@ The JSON used for hashing includes:
 ### Definido en los docs
 - None specified.
 
-### Pendiente de definicion
-- EVM library selection: `ethers` or `web3`.
-- Provider creation: JsonRpcProvider using `RPC_URL`.
-- Signer creation: Wallet with `PRIVATE_KEY` + provider.
+### Definido en el repo
+- `ethers` v5 (backend uses `Contract`).
+- Provider: JsonRpcProvider using `RPC_URL`.
+- Signer: Wallet with `PRIVATE_KEY` + provider.
+- ABI uses `anchorReview(address user, bytes32 reviewHash, bytes32 establishmentId)` and `ReviewAnchored` event.
 
 ## Backend Usage (How vars are used)
 
@@ -54,6 +61,7 @@ The JSON used for hashing includes:
 - `RPC_URL` is required to connect to the Syscoin EVM network.
 - `CHAIN_ID` must match the network to avoid signing on the wrong chain.
 - `PRIVATE_KEY` is required to sign the transaction that stores the hash.
+- `CONTRACT_ADDRESS` is required to call the Syspoints contract.
 
 ### Pendiente de definicion
 - Exact on-chain write flow (contract call vs. raw transaction).
@@ -71,6 +79,8 @@ The JSON used for hashing includes:
 
 `POST /syscoin/review-hash`
 - Purpose: submit a review hash to Syscoin devnet asynchronously.
+- Security: requires `Authorization: Bearer <token>`.
+- Behavior: sends transaction and returns `tx_hash` without waiting for confirmations.
 - Request body:
 ```json
 {
@@ -82,6 +92,9 @@ The JSON used for hashing includes:
 {
   "review_id": "uuid",
   "review_hash": "hash",
+  "user_wallet": "0x...",
+  "establishment_id_hash": "0x...",
+  "tx_hash": "0x...",
   "payload": {
     "review_id": "uuid",
     "user_id": "uuid",

@@ -78,8 +78,62 @@ async function findCoreById(dbClient, id) {
   return result.rows[0] || null;
 }
 
+async function listReviews(dbClient, { limit, offset, establishmentId, sort }) {
+  const values = [];
+  let whereClause = '';
+
+  if (establishmentId) {
+    values.push(establishmentId);
+    whereClause = `WHERE r.establishment_id = $${values.length}`;
+  }
+
+  const orderClause = sort === 'stars_desc'
+    ? 'ORDER BY r.stars DESC, r.created_at DESC'
+    : 'ORDER BY r.created_at DESC';
+
+  values.push(limit, offset);
+  const limitIndex = values.length - 1;
+  const offsetIndex = values.length;
+
+  const dataResult = await dbClient.query(
+    `SELECT
+      r.id,
+      r.user_id,
+      r.establishment_id,
+      r.description,
+      r.stars,
+      r.price,
+      r.purchase_url,
+      r.tags,
+      r.points_awarded,
+      r.review_hash,
+      r.created_at,
+      COALESCE(
+        array_agg(re.image_url ORDER BY re.created_at) FILTER (WHERE re.image_url IS NOT NULL),
+        '{}'::text[]
+      ) AS evidence_images
+    FROM reviews r
+    LEFT JOIN review_evidence re ON re.review_id = r.id
+    ${whereClause}
+    GROUP BY r.id
+    ${orderClause}
+    LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
+    values
+  );
+
+  const countResult = await dbClient.query(
+    `SELECT COUNT(*)::int AS total
+     FROM reviews r
+     ${whereClause}`,
+    establishmentId ? [establishmentId] : []
+  );
+
+  return { rows: dataResult.rows, total: countResult.rows[0]?.total || 0 };
+}
+
 module.exports = {
   createReview,
   findById,
   findCoreById,
+  listReviews,
 };

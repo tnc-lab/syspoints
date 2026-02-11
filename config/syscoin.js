@@ -1,27 +1,35 @@
 const { requireEnv } = require('./env');
-const { providers, Wallet } = require('ethers');
+const ethers = require('ethers');
 
 function getSyscoinConfig() {
   const rpcUrl = requireEnv('RPC_URL');
   const chainId = requireEnv('CHAIN_ID');
   const privateKey = requireEnv('PRIVATE_KEY');
+  const contractAddress = requireEnv('CONTRACT_ADDRESS');
 
   return {
     rpcUrl,
     chainId: Number(chainId),
     privateKey,
+    contractAddress,
   };
 }
 
 function createProvider() {
   const { rpcUrl, chainId } = getSyscoinConfig();
-  return new providers.JsonRpcProvider(rpcUrl, chainId);
+  if (ethers.providers && ethers.providers.JsonRpcProvider) {
+    return new ethers.providers.JsonRpcProvider(rpcUrl, chainId);
+  }
+  return new ethers.JsonRpcProvider(rpcUrl, chainId);
 }
 
 function createSigner() {
   const provider = createProvider();
   const { privateKey } = getSyscoinConfig();
-  return new Wallet(privateKey, provider);
+  if (ethers.Wallet) {
+    return new ethers.Wallet(privateKey, provider);
+  }
+  return new ethers.Wallet(privateKey, provider);
 }
 
 module.exports = {

@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { Wallet } = require('ethers');
-const { findByEmail, findByWallet, createUser } = require('../repositories/userRepository');
+const { findByEmail, findByWallet, createUser, listUsers } = require('../repositories/userRepository');
 const { ApiError } = require('../middlewares/errorHandler');
 
 async function createUserService({ wallet_address, email, name, avatar_url }) {
@@ -32,11 +32,13 @@ async function createUserService({ wallet_address, email, name, avatar_url }) {
     email: email || null,
     name,
     avatar_url,
+    role: 'user',
   });
 }
 
 module.exports = {
   userService: {
     createUser: createUserService,
+    listUsers,
   },
 };

@@ -23,6 +23,9 @@ Required environment variables:
 - `RPC_URL`
 - `CHAIN_ID`
 - `PRIVATE_KEY`
+- `CONTRACT_ADDRESS`
+- `JWT_SECRET`
+- `JWT_EXPIRES_IN` (optional, default 1h)
 
 `DATABASE_URL` format example:
 ```text
@@ -32,6 +35,69 @@ postgresql://username:password@host:5432/database_name
 ## API Contract (REST)
 
 All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
+
+## Authentication
+
+### Wallet-signature login
+
+`POST /auth/nonce`
+- Request body:
+```json
+{ "wallet_address": "0x..." }
+```
+- Response `200`:
+```json
+{
+  "user_id": "uuid",
+  "wallet_address": "0x...",
+  "nonce": "random",
+  "expires_at": "2026-02-09T12:00:00Z"
+}
+```
+- Errors:
+  - `400` validation error
+
+`POST /auth/token`
+- Request body:
+```json
+{
+  "wallet_address": "0x...",
+  "signature": "0x..."
+}
+```
+- Signature message format:
+```
+Syspoints login nonce: <nonce>
+```
+- Response `200`:
+```json
+{
+  "access_token": "jwt",
+  "token_type": "Bearer",
+  "expires_in": "1h"
+}
+```
+- Errors:
+  - `400` validation error
+  - `401` invalid signature or nonce
+
+Notes:
+- Authentication is wallet-only.
+- Nonce response is always 200 to reduce user enumeration.
+
+### Protected endpoints
+Require `Authorization: Bearer <token>`:
+- `GET /users` (admin)
+- `POST /establishments` (admin)
+- `POST /reviews`
+- `POST /syscoin/review-hash`
+- `GET /admin/points-config` (admin)
+- `PUT /admin/points-config` (admin)
+
+Role-based access
+- `admin` users can create establishments, list users, and update points config.
+- `user` and `admin` can create reviews.
+- Reviews list is public.
 
 ### Users
 
@@ -59,6 +125,21 @@ All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
 - Errors:
   - `400` validation error
   - `409` email or wallet already exists
+
+`GET /users`
+- Response `200`:
+```json
+[
+  {
+    "id": "uuid",
+    "wallet_address": "0x...",
+    "email": "user@email.com",
+    "name": "User",
+    "avatar_url": "https://...",
+    "created_at": "2026-02-09T12:00:00Z"
+  }
+]
+```
 
 ### Establishments
 
@@ -138,6 +219,49 @@ All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
 - Errors:
   - `404` not found
 
+`GET /reviews`
+- Query params:
+  - `page` (default 1)
+  - `page_size` (default 20)
+  - `establishment_id` (optional UUID filter)
+  - `sort` (optional, allowed: `stars_desc`)
+- Response `200`:
+```json
+{
+  "data": [ /* Review entities */ ],
+  "meta": {
+    "page": 1,
+    "page_size": 20,
+    "total": 0
+  }
+}
+```
+
+### Leaderboard
+
+`GET /leaderboard`
+- Query params:
+  - `page` (default 1)
+  - `page_size` (default 20)
+- Response `200`:
+```json
+{
+  "data": [
+    {
+      "user_id": "uuid",
+      "name": "User",
+      "avatar_url": "https://...",
+      "total_points": 42
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "page_size": 20,
+    "total": 0
+  }
+}
+```
+
 ### Syscoin
 
 `POST /syscoin/review-hash`
@@ -153,6 +277,9 @@ All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
 {
   "review_id": "uuid",
   "review_hash": "hash",
+  "user_wallet": "0x...",
+  "establishment_id_hash": "0x...",
+  "tx_hash": "0x...",
   "payload": {
     "review_id": "uuid",
     "user_id": "uuid",
@@ -165,6 +292,41 @@ All timestamps are ISO-8601 in UTC. All IDs are UUID strings.
 - Errors:
   - `400` validation error
   - `404` review not found
+
+### Admin – Points Configuration
+
+`GET /admin/points-config`
+- Response `200`:
+```json
+{
+  "image_points_yes": 1,
+  "image_points_no": 0,
+  "description_points_gt_200": 2,
+  "description_points_lte_200": 1,
+  "stars_points_yes": 1,
+  "stars_points_no": 0,
+  "price_points_lt_100": 1,
+  "price_points_gte_100": 2
+}
+```
+
+`PUT /admin/points-config`
+- Request body:
+```json
+{
+  "image_points_yes": 1,
+  "image_points_no": 0,
+  "description_points_gt_200": 2,
+  "description_points_lte_200": 1,
+  "stars_points_yes": 1,
+  "stars_points_no": 0,
+  "price_points_lt_100": 1,
+  "price_points_gte_100": 2
+}
+```
+- Response `200`: same shape as GET
+- Errors:
+  - `400` validation error
 
 ## Idempotency and Duplicates
 

@@ -1,23 +1,31 @@
 const crypto = require('crypto');
 const { withTransaction, query } = require('../db');
-const { createReview, findById } = require('../repositories/reviewRepository');
+const { createReview, findById, listReviews: listReviewsRepo } = require('../repositories/reviewRepository');
+const { findById: findUserById } = require('../repositories/userRepository');
 const { createEvidenceBatch } = require('../repositories/reviewEvidenceRepository');
 const { establishmentService } = require('./establishmentService');
 const { submitReviewHashAsync } = require('./syscoinService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { hashReviewPayload } = require('../utils/hash');
+const { getCurrentConfig } = require('../repositories/pointsConfigRepository');
+const { findByUserAndKey, saveResponse } = require('../repositories/idempotencyRepository');
 
 const idempotencyCache = new Map();
 
-function computePoints({ description, stars, price, evidenceCount }) {
+function computePoints({ description, stars, price, evidenceCount, config }) {
   let points = 0;
 
-  if (evidenceCount > 0) points += 1;
-  if (description.length > 200) points += 2;
-  else points += 1;
-  if (stars) points += 1;
-  if (price < 100) points += 1;
-  else points += 2;
+  if (evidenceCount > 0) points += config.image_points_yes;
+  else points += config.image_points_no;
+
+  if (description.length > 200) points += config.description_points_gt_200;
+  else points += config.description_points_lte_200;
+
+  if (stars) points += config.stars_points_yes;
+  else points += config.stars_points_no;
+
+  if (price < 100) points += config.price_points_lt_100;
+  else points += config.price_points_gte_100;
 
   return points;
 }
@@ -54,6 +62,9 @@ async function createReviewService({
     const cacheKey = `${user_id}:${idempotencyKey}`;
     const cached = idempotencyCache.get(cacheKey);
     if (cached) return cached;
+
+    const stored = await findByUserAndKey({ query }, user_id, idempotencyKey);
+    if (stored) return stored;
   }
 
   const establishment = await establishmentService.getEstablishmentById(establishment_id);
@@ -62,11 +73,16 @@ async function createReviewService({
   }
 
   const reviewId = crypto.randomUUID();
+  const config = await getCurrentConfig({ query });
+  if (!config) {
+    throw new ApiError(500, 'points configuration missing');
+  }
   const points_awarded = computePoints({
     description,
     stars,
     price,
     evidenceCount: evidence_images.length,
+    config,
   });
 
   const hashPayload = {
@@ -119,11 +135,14 @@ async function createReviewService({
 
   if (idempotencyKey) {
     const cacheKey = `${user_id}:${idempotencyKey}`;
-    // TODO: Persist idempotency keys in storage for multi-instance setups.
     idempotencyCache.set(cacheKey, response);
+    await saveResponse({ query }, user_id, idempotencyKey, response);
   }
 
-  submitReviewHashAsync(response.review_hash);
+  const user = await findUserById(user_id);
+  if (user && user.wallet_address) {
+    submitReviewHashAsync(user.wallet_address, establishment_id, response.review_hash);
+  }
 
   return response;
 }
@@ -135,9 +154,33 @@ async function getReviewByIdService(id) {
   return formatReviewResponse(review, review.evidence_images || []);
 }
 
+async function listReviewsService({ page, pageSize, establishmentId, sort }) {
+  const offset = (page - 1) * pageSize;
+  const { rows, total } = await listReviewsRepo({ query }, {
+    limit: pageSize,
+    offset,
+    establishmentId,
+    sort,
+  });
+
+  const data = rows.map((review) =>
+    formatReviewResponse(review, review.evidence_images || [])
+  );
+
+  return {
+    data,
+    meta: {
+      page,
+      page_size: pageSize,
+      total,
+    },
+  };
+}
+
 module.exports = {
   reviewService: {
     createReview: createReviewService,
     getReviewById: getReviewByIdService,
+    listReviews: listReviewsService,
   },
 };

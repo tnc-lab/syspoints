@@ -1,10 +1,10 @@
 const hre = require("hardhat");
 
 async function main() {
-  console.log("🚀 Deploying Syspoints contract...");
+  console.log("🚀 Deploying SyspointsReviews contract...");
 
-  const Syspoints = await hre.ethers.getContractFactory("Syspoints");
-  const syspoints = await Syspoints.deploy();
+  const SyspointsReviews = await hre.ethers.getContractFactory("SyspointsReviews");
+  const syspoints = await SyspointsReviews.deploy();
 
   await syspoints.waitForDeployment();
 

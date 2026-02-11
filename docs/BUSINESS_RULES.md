@@ -8,6 +8,7 @@
   - name
   - email
   - avatar
+  - role (`user` or `admin`)
 
 ## Establishments
 - Reviews can only be created for predefined establishments
@@ -64,6 +65,15 @@ Points are awarded per review:
 - Point values must be configurable by an administrator
 - Products must be added by an administrator
 - Each user have a dashboard
+
+Admin rules
+- Only `admin` users can create establishments.
+- Only `admin` users can update points configuration.
+- Only `admin` users can list all users.
+- Reviews list is public (frontend homepage).
+
+Authentication
+- Login is wallet-only via signature.
 
 ## States and Transitions
 

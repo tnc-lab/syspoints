@@ -90,4 +90,40 @@ async function getReviewById(req, res, next) {
   }
 }
 
-module.exports = { createReview, getReviewById };
+async function listReviews(req, res, next) {
+  try {
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.page_size || 20);
+    const establishmentId = req.query.establishment_id || null;
+    const sort = req.query.sort || null;
+
+    if (!Number.isInteger(page) || page < 1) {
+      throw new ApiError(400, 'page must be a positive integer');
+    }
+
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new ApiError(400, 'page_size must be an integer between 1 and 100');
+    }
+
+    if (establishmentId && !isValidUuid(establishmentId)) {
+      throw new ApiError(400, 'establishment_id must be a UUID');
+    }
+
+    if (sort && sort !== 'stars_desc') {
+      throw new ApiError(400, 'sort must be stars_desc');
+    }
+
+    const result = await reviewService.listReviews({
+      page,
+      pageSize,
+      establishmentId,
+      sort,
+    });
+
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { createReview, getReviewById, listReviews };
