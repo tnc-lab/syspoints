@@ -21,7 +21,7 @@ function computePoints({ description, stars, price, evidenceCount, config }) {
   if (description.length > 200) points += config.description_points_gt_200;
   else points += config.description_points_lte_200;
 
-  if (stars) points += config.stars_points_yes;
+  if (stars !== null && stars !== undefined) points += config.stars_points_yes;
   else points += config.stars_points_no;
 
   if (price < 100) points += config.price_points_lt_100;
@@ -35,6 +35,7 @@ function formatReviewResponse(reviewRow, evidenceImages) {
     id: reviewRow.id,
     user_id: reviewRow.user_id,
     establishment_id: reviewRow.establishment_id,
+    title: reviewRow.title,
     description: reviewRow.description,
     stars: reviewRow.stars,
     price: Number(reviewRow.price),
@@ -50,6 +51,7 @@ function formatReviewResponse(reviewRow, evidenceImages) {
 async function createReviewService({
   user_id,
   establishment_id,
+  title,
   description,
   stars,
   price,
@@ -107,6 +109,7 @@ async function createReviewService({
         id: reviewId,
         user_id,
         establishment_id,
+        title,
         description,
         stars,
         price,

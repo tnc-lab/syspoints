@@ -107,10 +107,14 @@ Notes:
 Require `Authorization: Bearer <token>`:
 - `GET /users` (admin)
 - `POST /establishments` (admin)
+- `PUT /establishments/:id` (admin)
+- `POST /establishments/upload-image` (admin)
 - `POST /reviews`
+- `POST /reviews/upload-evidence`
 - `POST /syscoin/review-hash`
 - `GET /admin/points-config` (admin)
 - `PUT /admin/points-config` (admin)
+- `POST /admin/points-config/default-avatar` (admin)
 
 Role-based access
 - `admin` users can create establishments, list users, and update points config.
@@ -165,12 +169,13 @@ Role-based access
 - Response `200`:
 ```json
 [
-  {
-    "id": "uuid",
-    "name": "Store",
-    "category": "restaurant",
-    "created_at": "2026-02-09T12:00:00Z"
-  }
+{
+  "id": "uuid",
+  "name": "Store",
+  "category": "restaurant",
+  "image_url": "https://.../uploads/establishments/file.jpg",
+  "created_at": "2026-02-09T12:00:00Z"
+}
 ]
 ```
 
@@ -179,7 +184,8 @@ Role-based access
 ```json
 {
   "name": "Store",
-  "category": "restaurant"
+  "category": "restaurant",
+  "image_url": "https://.../uploads/establishments/file.jpg"
 }
 ```
 - Response `201`:
@@ -188,11 +194,54 @@ Role-based access
   "id": "uuid",
   "name": "Store",
   "category": "restaurant",
+  "image_url": "https://.../uploads/establishments/file.jpg",
   "created_at": "2026-02-09T12:00:00Z"
 }
 ```
 - Errors:
   - `400` validation error
+
+`PUT /establishments/:id`
+- Request body:
+```json
+{
+  "name": "Store",
+  "category": "restaurant",
+  "image_url": "https://.../uploads/establishments/file.jpg"
+}
+```
+- Response `200`:
+```json
+{
+  "id": "uuid",
+  "name": "Store",
+  "category": "restaurant",
+  "image_url": "https://.../uploads/establishments/file.jpg",
+  "created_at": "2026-02-09T12:00:00Z"
+}
+```
+- Errors:
+  - `400` validation error
+  - `404` establishment not found
+
+`POST /establishments/upload-image`
+- Request body:
+```json
+{
+  "file_name": "store-front.jpg",
+  "mime_type": "image/jpeg",
+  "data_url": "data:image/jpeg;base64,..."
+}
+```
+- Limits:
+  - Allowed mime types: `image/jpeg`, `image/png`, `image/webp`
+  - Max decoded size: `1,500,000` bytes
+- Response `201`:
+```json
+{
+  "image_url": "http://localhost:3000/uploads/establishments/store-front-uuid.jpg"
+}
+```
 
 ### Reviews
 
@@ -202,12 +251,13 @@ Role-based access
 {
   "user_id": "uuid",
   "establishment_id": "uuid",
+  "title": "Great service and fast delivery",
   "description": "text...",
-  "stars": 5,
+  "stars": 4,
   "price": 90.5,
   "purchase_url": "https://...",
   "tags": ["tag1", "tag2"],
-  "evidence_images": ["https://..."]
+  "evidence_images": ["https://...","https://..."]
 }
 ```
 - Response `201`:
@@ -216,8 +266,9 @@ Role-based access
   "id": "uuid",
   "user_id": "uuid",
   "establishment_id": "uuid",
+  "title": "Great service and fast delivery",
   "description": "text...",
-  "stars": 5,
+  "stars": 4,
   "price": 90.5,
   "purchase_url": "https://...",
   "tags": ["tag1", "tag2"],
@@ -231,6 +282,30 @@ Role-based access
   - `400` validation error
   - `404` establishment not found
   - `409` review hash already exists
+
+Validation notes:
+- `title` is required and must contain at most 12 words.
+- `stars` must be an integer between 0 and 5.
+- `evidence_images` must contain between 1 and 3 valid URLs.
+
+`POST /reviews/upload-evidence`
+- Request body:
+```json
+{
+  "file_name": "evidence.jpg",
+  "mime_type": "image/jpeg",
+  "data_url": "data:image/jpeg;base64,..."
+}
+```
+- Limits:
+  - Allowed mime types: `image/jpeg`, `image/png`, `image/webp`
+  - Max decoded size: `1,500,000` bytes
+- Response `201`:
+```json
+{
+  "image_url": "http://localhost:3000/uploads/reviews/evidence-uuid.jpg"
+}
+```
 
 `GET /reviews/:id`
 - Response `200`: Review entity
@@ -324,7 +399,8 @@ Role-based access
   "stars_points_yes": 1,
   "stars_points_no": 0,
   "price_points_lt_100": 1,
-  "price_points_gte_100": 2
+  "price_points_gte_100": 2,
+  "default_user_avatar_url": "https://.../uploads/config/default-avatar.jpg"
 }
 ```
 
@@ -339,7 +415,27 @@ Role-based access
   "stars_points_yes": 1,
   "stars_points_no": 0,
   "price_points_lt_100": 1,
-  "price_points_gte_100": 2
+  "price_points_gte_100": 2,
+  "default_user_avatar_url": "https://.../uploads/config/default-avatar.jpg"
+}
+```
+
+`POST /admin/points-config/default-avatar`
+- Request body:
+```json
+{
+  "file_name": "default-avatar.jpg",
+  "mime_type": "image/jpeg",
+  "data_url": "data:image/jpeg;base64,..."
+}
+```
+- Limits:
+  - Allowed mime types: `image/jpeg`, `image/png`, `image/webp`
+  - Max decoded size: `1,500,000` bytes
+- Response `201`:
+```json
+{
+  "default_user_avatar_url": "http://localhost:3000/uploads/config/default-avatar-uuid.jpg"
 }
 ```
 - Response `200`: same shape as GET

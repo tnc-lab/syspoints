@@ -22,9 +22,10 @@ A review:
 - Cannot be edited or deleted
 - Must include:
   - Choose listed store, restaurant or service
+  - Title (short, standard title)
   - Images about product or service
   - Description (minimum length enforced)
-  - Star rating (1 to 5)
+  - Star rating (0 to 5)
   - Product or service price
   - URL of purchase or consumption
   - Tags / labels
@@ -32,15 +33,16 @@ A review:
 
 Validation rules
 - `description` must be at least 1 character long (minimum length is enforced; exact threshold is 1 until specified).
-- `stars` must be between 1 and 5.
+- `title` is required and must contain at most 12 words.
+- `stars` must be between 0 and 5.
 - `price` must be greater than 0 (PEN).
 - `purchase_url` must be a valid URL.
 - `tags` must contain at least one value.
-- At least one evidence image is required.
+- Evidence images must be between 1 and 3.
 
 ### Evidence
 - User must upload images to validate usage or purchase
-- Each review must include at least one evidence image
+- Each review must include between 1 and 3 evidence images
 
 ## Points system
 Points are awarded per review:

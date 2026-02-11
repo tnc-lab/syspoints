@@ -52,6 +52,7 @@ async function issueToken({ wallet_address, signature }) {
   const token = jwt.sign(
     {
       sub: user.id,
+      name: user.name || null,
       email: user.email || null,
       wallet_address: user.wallet_address,
       role: user.role || 'user',
