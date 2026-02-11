@@ -15,7 +15,7 @@ Set these in Vercel Project Settings → Environment Variables:
 - `CHAIN_ID`
 - `PRIVATE_KEY`
 - `CONTRACT_ADDRESS`
-- `BASE_URL` = `https://syspoints-dev.vercel.app/api`
+- `BASE_URL` = `https://syspoints-dev.vercel.app`
 
 ## 3. Vercel Config
 The repository includes `vercel.json`:
@@ -40,8 +40,8 @@ vercel --prod
 ```
 
 ## 5. Verify
-- API base: `https://syspoints-dev.vercel.app/api`
-- Swagger UI: `https://syspoints-dev.vercel.app/api/docs`
+- API base: `https://syspoints-dev.vercel.app`
+- Swagger UI: `https://syspoints-dev.vercel.app/docs`
 
 ## 6. Post-deploy checks
 - Test `/auth/nonce` and `/auth/token`

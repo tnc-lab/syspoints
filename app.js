@@ -18,6 +18,10 @@ app.use(express.json());
 
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+app.get('/', (req, res) => {
+  res.redirect('/docs');
+});
+
 app.use('/auth', authRouter);
 
 app.use('/users', usersRouter);
