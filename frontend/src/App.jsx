@@ -118,6 +118,7 @@ function App() {
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
   const [establishments, setEstablishments] = useState([])
+  const [reviewsView, setReviewsView] = useState("list")
   const [selectedReview, setSelectedReview] = useState(null)
   const [loadingSelectedReview, setLoadingSelectedReview] = useState(false)
   const [loadingReviewId, setLoadingReviewId] = useState("")
@@ -1485,82 +1486,156 @@ function App() {
               <section className="panel" style={{ gridColumn: "1 / 2" }}>
                 <div className="panel-header">
                   <h3 className="panel-title">Recent reviews</h3>
-                  <div style={{ display: "flex", gap: "8px" }}>
-                    <button
-                      className="ghost-button"
-                      disabled={reviewsMeta.page <= 1}
-                      onClick={() => fetchReviews(reviewsMeta.page - 1)}
-                    >
-                      ←
-                    </button>
-                    <button
-                      className="ghost-button"
-                      disabled={reviews.length < DEFAULT_PAGE_SIZE}
-                      onClick={() => fetchReviews(reviewsMeta.page + 1)}
-                    >
-                      →
-                    </button>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <button
+                        className="ghost-button"
+                        style={{ background: reviewsView === "list" ? "var(--surface-alt)" : "transparent" }}
+                        onClick={() => setReviewsView("list")}
+                        aria-pressed={reviewsView === "list"}
+                      >
+                        Lista
+                      </button>
+                      <button
+                        className="ghost-button"
+                        style={{ background: reviewsView === "grid" ? "var(--surface-alt)" : "transparent" }}
+                        onClick={() => setReviewsView("grid")}
+                        aria-pressed={reviewsView === "grid"}
+                      >
+                        Cuadrícula
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
+                      <button
+                        className="ghost-button"
+                        disabled={reviewsMeta.page <= 1}
+                        onClick={() => fetchReviews(reviewsMeta.page - 1)}
+                      >
+                        ←
+                      </button>
+                      <button
+                        className="ghost-button"
+                        disabled={reviews.length < DEFAULT_PAGE_SIZE}
+                        onClick={() => fetchReviews(reviewsMeta.page + 1)}
+                      >
+                        →
+                      </button>
+                    </div>
                   </div>
                 </div>
                 {loadingReviews ? (
                   <p>Loading reviews...</p>
                 ) : (
-                  <div className="reviews-grid">
-                    <div className="table-header">
-                      <div>Rank</div>
-                      <div>Review</div>
-                      <div style={{ textAlign: "right" }}>Rating</div>
-                    </div>
-                    {reviews.map((review, index) => (
-                      <div className="review-card table-row" key={review.id}>
-                        <div className="rank-pill">#{(reviewsMeta.page - 1) * DEFAULT_PAGE_SIZE + index + 1}</div>
-                        <div>
-                          <div className="review-row">
-                            <div className="review-thumb review-thumb-lg" style={{ padding: 0, overflow: "hidden" }}>
-                              {establishmentsById.get(review.establishment_id)?.image_url ? (
-                                <img
-                                  src={establishmentsById.get(review.establishment_id)?.image_url}
-                                  alt={establishmentsById.get(review.establishment_id)?.name || "Establishment"}
-                                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                />
-                              ) : (
-                                <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
-                              )}
-                            </div>
+                  <>
+                    {reviewsView === "list" ? (
+                      <div className="reviews-grid">
+                        <div className="table-header">
+                          <div>Rank</div>
+                          <div>Review</div>
+                          <div style={{ textAlign: "right" }}>Rating</div>
+                        </div>
+                        {reviews.map((review, index) => (
+                          <div className="review-card table-row" key={review.id}>
+                            <div className="rank-pill">#{(reviewsMeta.page - 1) * DEFAULT_PAGE_SIZE + index + 1}</div>
                             <div>
-                              <div className="review-title">{review.title || "Untitled review"}</div>
-                              <div className="review-sub">{review.description}</div>
-                              {Array.isArray(review.tags) && review.tags.length > 0 && (
-                                <div className="review-tags" style={{ marginTop: "8px" }}>
-                                  {review.tags.map((tag) => {
-                                    const tagColor = getTagColor(tag)
-                                    return (
-                                      <span
-                                        key={`${review.id}-${tag}`}
-                                        className="tag"
-                                        style={{ background: tagColor.background, color: tagColor.color }}
-                                      >
-                                        #{tag}
-                                      </span>
-                                    )
-                                  })}
+                              <div className="review-row">
+                                <div className="review-thumb review-thumb-lg" style={{ padding: 0, overflow: "hidden" }}>
+                                  {establishmentsById.get(review.establishment_id)?.image_url ? (
+                                    <img
+                                      src={establishmentsById.get(review.establishment_id)?.image_url}
+                                      alt={establishmentsById.get(review.establishment_id)?.name || "Establishment"}
+                                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                    />
+                                  ) : (
+                                    <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
+                                  )}
                                 </div>
-                              )}
+                                <div>
+                                  <div className="review-title">{review.title || "Untitled review"}</div>
+                                  <div className="review-sub">{review.description}</div>
+                                  {Array.isArray(review.tags) && review.tags.length > 0 && (
+                                    <div className="review-tags" style={{ marginTop: "8px" }}>
+                                      {review.tags.map((tag) => {
+                                        const tagColor = getTagColor(tag)
+                                        return (
+                                          <span
+                                            key={`${review.id}-${tag}`}
+                                            className="tag"
+                                            style={{ background: tagColor.background, color: tagColor.color }}
+                                          >
+                                            #{tag}
+                                          </span>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="review-actions review-actions-main">
+                              <div className="review-stars">
+                                {"★".repeat(Number(review.stars) || 0)}
+                                {"☆".repeat(5 - (Number(review.stars) || 0))}
+                              </div>
+                              <button className="primary-button alt watch-button" onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
+                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
+                              </button>
                             </div>
                           </div>
-                        </div>
-                        <div className="review-actions review-actions-main">
-                          <div className="review-stars">
-                            {"★".repeat(Number(review.stars) || 0)}
-                            {"☆".repeat(5 - (Number(review.stars) || 0))}
-                          </div>
-                          <button className="primary-button alt watch-button" onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
-                            {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
-                          </button>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    ) : (
+                      <div className="reviews-cards">
+                        {reviews.map((review, index) => (
+                          <div className="review-card card" key={review.id}>
+                            <div className="review-row">
+                              <div className="review-thumb review-thumb-lg" style={{ padding: 0, overflow: "hidden" }}>
+                                {establishmentsById.get(review.establishment_id)?.image_url ? (
+                                  <img
+                                    src={establishmentsById.get(review.establishment_id)?.image_url}
+                                    alt={establishmentsById.get(review.establishment_id)?.name || "Establishment"}
+                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                  />
+                                ) : (
+                                  <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
+                                )}
+                              </div>
+                              <div style={{ width: "100%" }}>
+                                <div className="rank-pill">#{(reviewsMeta.page - 1) * DEFAULT_PAGE_SIZE + index + 1}</div>
+                                <div className="review-title">{review.title || "Untitled review"}</div>
+                                <div className="review-sub">{review.description}</div>
+                                {Array.isArray(review.tags) && review.tags.length > 0 && (
+                                  <div className="review-tags" style={{ marginTop: "8px" }}>
+                                    {review.tags.map((tag) => {
+                                      const tagColor = getTagColor(tag)
+                                      return (
+                                        <span
+                                          key={`${review.id}-${tag}`}
+                                          className="tag"
+                                          style={{ background: tagColor.background, color: tagColor.color }}
+                                        >
+                                          #{tag}
+                                        </span>
+                                      )
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <div className="review-actions review-actions-main" style={{ marginTop: "12px" }}>
+                              <div className="review-stars">
+                                {"★".repeat(Number(review.stars) || 0)}
+                                {"☆".repeat(5 - (Number(review.stars) || 0))}
+                              </div>
+                              <button className="primary-button alt watch-button" onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
+                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </section>
 
