@@ -1,6 +1,6 @@
 # Syspoints
 
-![Syspoints](https://i.ibb.co/fY7fhskW/syspoints-banner.png)
+![Syspoints](https://i.ibb.co/jnZ637X/syspoints-banner.jpg)
 
 | 🇺🇸 English | [🇪🇸 Español](docs/README.es.md) | [🇧🇷 Português](docs/README.pt.md)
 
