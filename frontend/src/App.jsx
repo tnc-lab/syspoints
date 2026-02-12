@@ -1194,28 +1194,14 @@ function App() {
           message: "Confirm the transaction in your wallet to anchor this review on-chain.",
         }))
 
-        const payload = {
-          review_id: reviewId,
-          user_id: userId,
-          establishment_id: reviewForm.establishment_id,
-          timestamp: new Date().toISOString(),
-          price: Number(reviewForm.price),
+        const reviewHash = String(created?.review_hash || "")
+        if (!ethers.isHexString(reviewHash, 32)) {
+          throw new Error("Invalid review hash returned by backend.")
         }
-
-        const reviewHash = ethers.solidityPackedKeccak256(
-          ["string", "string", "string", "string", "string"],
-          [
-            String(payload.review_id),
-            String(payload.user_id),
-            String(payload.establishment_id),
-            String(payload.timestamp),
-            String(payload.price),
-          ]
-        )
 
         const establishmentHash = ethers.solidityPackedKeccak256(
           ["string"],
-          [String(payload.establishment_id)]
+          [String(reviewForm.establishment_id)]
         )
 
         const tx = await contract.anchorReview(walletAddress, reviewHash, establishmentHash)
