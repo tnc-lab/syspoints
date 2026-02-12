@@ -31,6 +31,12 @@ const getChainProofErrorMessage = (error) => {
   if (!message || /failed to fetch/i.test(message)) {
     return "No se pudo consultar la red en este momento (RPC/Explorer). Verifica VITE_RPC_URL y conexión."
   }
+  if (
+    /method only available when connected on evm chains/i.test(message) ||
+    /could not coalesce error/i.test(message)
+  ) {
+    return "No se puede verificar en cadena con el provider actual. Conecta una wallet EVM en la red correcta o configura VITE_RPC_URL."
+  }
   return message
 }
 
@@ -154,6 +160,7 @@ function App() {
     if (!RPC_URL) return null
     return new ethers.JsonRpcProvider(RPC_URL)
   }, [])
+  const hasWalletProvider = useMemo(() => typeof window !== "undefined" && Boolean(window.ethereum), [])
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -1038,7 +1045,21 @@ function App() {
       return
     }
 
-    const providerCandidates = [readProvider, getWalletProvider()].filter(Boolean)
+    const providerCandidates = []
+    if (readProvider) {
+      providerCandidates.push(readProvider)
+    }
+    const walletProvider = getWalletProvider()
+    if (walletProvider) {
+      try {
+        const walletNetwork = await walletProvider.getNetwork()
+        if (Number(walletNetwork.chainId) === Number(CHAIN_ID)) {
+          providerCandidates.push(walletProvider)
+        }
+      } catch {
+        // ignore wallet provider if it is not available for EVM requests
+      }
+    }
     if (providerCandidates.length === 0 || !CONTRACT_ADDRESS) {
       setReviewChainInfo({
         loading: false,
@@ -1046,7 +1067,7 @@ function App() {
         txHash: "",
         blockNumber: null,
         blockTimestamp: null,
-        error: "Blockchain provider not configured.",
+        error: "No hay provider blockchain disponible. Configura VITE_RPC_URL o conecta wallet en Syscoin Devnet.",
       })
       return
     }
@@ -1301,6 +1322,7 @@ function App() {
         walletUserName={walletUserName}
         isConnected={Boolean(walletAddress && token)}
         isAdmin={Boolean(walletAddress && token && isAdmin)}
+        hasWalletProvider={hasWalletProvider}
         onWalletAction={handleWalletAction}
         onNavigate={setActivePage}
       />
@@ -1313,35 +1335,47 @@ function App() {
               <>
                 <p>Select a wallet provider to continue.</p>
                 <div className="pill" style={{ marginBottom: "12px" }}>{detectProvider()}</div>
-                <div className="wallet-grid">
-                  <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy
-                      ? walletFlowStep === "network"
-                        ? "Switching network..."
-                        : walletFlowStep === "accounts"
-                          ? "Requesting account..."
-                          : "Waiting signature..."
-                      : "MetaMask"}
-                  </button>
-                  <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy
-                      ? walletFlowStep === "network"
-                        ? "Switching network..."
-                        : walletFlowStep === "accounts"
-                          ? "Requesting account..."
-                          : "Waiting signature..."
-                      : "PaliWallet"}
-                  </button>
-                  <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy
-                      ? walletFlowStep === "network"
-                        ? "Switching network..."
-                        : walletFlowStep === "accounts"
-                          ? "Requesting account..."
-                          : "Waiting signature..."
-                      : "Other Wallet"}
-                  </button>
-                </div>
+                {!hasWalletProvider ? (
+                  <div className="wallet-install-box">
+                    <p style={{ margin: 0 }}>
+                      No EVM wallet detected in this browser. You can still browse in read-only mode.
+                    </p>
+                    <div className="wallet-install-links">
+                      <a href="https://metamask.io/download/" target="_blank" rel="noreferrer">Install MetaMask</a>
+                      <a href="https://paliwallet.com/" target="_blank" rel="noreferrer">Install PaliWallet</a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="wallet-grid">
+                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
+                      {walletBusy
+                        ? walletFlowStep === "network"
+                          ? "Switching network..."
+                          : walletFlowStep === "accounts"
+                            ? "Requesting account..."
+                            : "Waiting signature..."
+                        : "MetaMask"}
+                    </button>
+                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
+                      {walletBusy
+                        ? walletFlowStep === "network"
+                          ? "Switching network..."
+                          : walletFlowStep === "accounts"
+                            ? "Requesting account..."
+                            : "Waiting signature..."
+                        : "PaliWallet"}
+                    </button>
+                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
+                      {walletBusy
+                        ? walletFlowStep === "network"
+                          ? "Switching network..."
+                          : walletFlowStep === "accounts"
+                            ? "Requesting account..."
+                            : "Waiting signature..."
+                        : "Other Wallet"}
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
               <>

@@ -1,4 +1,12 @@
-export default function Header({ walletAddress, walletUserName, isConnected, isAdmin, onWalletAction, onNavigate }) {
+export default function Header({
+  walletAddress,
+  walletUserName,
+  isConnected,
+  isAdmin,
+  hasWalletProvider,
+  onWalletAction,
+  onNavigate,
+}) {
   const shortAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
     : ""
@@ -27,11 +35,14 @@ export default function Header({ walletAddress, walletUserName, isConnected, isA
         </nav>
 
         <div className="topbar-actions">
+          {!hasWalletProvider && (
+            <span className="pill">Read-only mode</span>
+          )}
           <button className="lang-button">
             English ▾
           </button>
           <button className="primary-button" onClick={onWalletAction} title={walletAddress || "Connect wallet"}>
-            {isConnected ? `${connectedLabel} | Desconectar` : "Connect wallet"}
+            {isConnected ? `${connectedLabel} | Desconectar` : hasWalletProvider ? "Connect wallet" : "Install wallet"}
           </button>
         </div>
       </div>
