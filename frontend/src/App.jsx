@@ -31,6 +31,12 @@ const getChainProofErrorMessage = (error) => {
   if (!message || /failed to fetch/i.test(message)) {
     return "No se pudo consultar la red en este momento (RPC/Explorer). Verifica VITE_RPC_URL y conexión."
   }
+  if (
+    /method only available when connected on evm chains/i.test(message) ||
+    /could not coalesce error/i.test(message)
+  ) {
+    return "No se puede verificar en cadena con el provider actual. Conecta una wallet EVM en la red correcta o configura VITE_RPC_URL."
+  }
   return message
 }
 
@@ -1038,7 +1044,21 @@ function App() {
       return
     }
 
-    const providerCandidates = [readProvider, getWalletProvider()].filter(Boolean)
+    const providerCandidates = []
+    if (readProvider) {
+      providerCandidates.push(readProvider)
+    }
+    const walletProvider = getWalletProvider()
+    if (walletProvider) {
+      try {
+        const walletNetwork = await walletProvider.getNetwork()
+        if (Number(walletNetwork.chainId) === Number(CHAIN_ID)) {
+          providerCandidates.push(walletProvider)
+        }
+      } catch {
+        // ignore wallet provider if it is not available for EVM requests
+      }
+    }
     if (providerCandidates.length === 0 || !CONTRACT_ADDRESS) {
       setReviewChainInfo({
         loading: false,
@@ -1046,7 +1066,7 @@ function App() {
         txHash: "",
         blockNumber: null,
         blockTimestamp: null,
-        error: "Blockchain provider not configured.",
+        error: "No hay provider blockchain disponible. Configura VITE_RPC_URL o conecta wallet en Syscoin Devnet.",
       })
       return
     }
