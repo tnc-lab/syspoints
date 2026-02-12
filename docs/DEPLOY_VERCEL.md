@@ -16,6 +16,16 @@ Set these in Vercel Project Settings → Environment Variables:
 - `PRIVATE_KEY`
 - `CONTRACT_ADDRESS`
 - `BASE_URL` = `https://syspoints-dev.vercel.app`
+- `CORS_ORIGIN` = `https://syspoints.vercel.app,http://localhost:5173`
+- `PGPOOL_MAX` = `1`
+
+### Persistent image storage (recommended on Vercel)
+To avoid losing images between serverless instances, configure Cloudinary:
+
+- `CLOUDINARY_CLOUD_NAME`
+- `CLOUDINARY_API_KEY`
+- `CLOUDINARY_API_SECRET`
+- `CLOUDINARY_FOLDER` (optional, default: `syspoints`)
 
 ## 3. Vercel Config
 The repository includes `vercel.json`:
