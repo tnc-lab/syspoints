@@ -3,6 +3,7 @@ import { ethers } from "ethers"
 
 import Header from "./components/Header"
 import Footer from "./components/Footer"
+import FileUpload from "./components/FileUpload"
 import { API_BASE, ABI, CHAIN_ID, CONTRACT_ADDRESS, EXPLORER_TX_BASE_URL, RPC_URL } from "./config"
 import "./App.css"
 
@@ -1592,7 +1593,7 @@ function App() {
                                 {"☆".repeat(5 - (Number(review.stars) || 0))}
                               </div>
                               <button className="primary-button alt watch-button" onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
-                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
+                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "See more"}
                               </button>
                             </div>
                           </div>
@@ -1647,7 +1648,7 @@ function App() {
                                 ) : <div />}
                                 
                                 <button className="primary-button alt watch-button" style={{ width: "100%", marginTop: "12px", padding: "8px" }} onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
-                                  {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
+                                  {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "See more"}
                                 </button>
                               </div>
                             </div>
@@ -1696,8 +1697,27 @@ function App() {
               <div className="panel-header">
                 <h3 className="panel-title">Write a review</h3>
                 <span className="pill">Review</span>
-              </div>
+              </div>          
               <div className="input-group">
+                <div>
+                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                    Título breve y claro: resume la idea principal de tu reseña (máx {MAX_REVIEW_TITLE_WORDS} palabras).
+                  </div>
+                  <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
+                    {countWords(reviewForm.title)}/{MAX_REVIEW_TITLE_WORDS} palabras
+                  </div>
+                  <input
+                    className="input"
+                    placeholder="Review title"
+                    value={reviewForm.title}
+                    onChange={(event) =>
+                      setReviewForm({ ...reviewForm, title: event.target.value })
+                    }
+                  />
+                </div>    
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Selecciona el establecimiento donde ocurrió tu experiencia. Si no aparece en la lista, puedes crearlo desde la sección Admin.
+                </div>
                 <select
                   className="input"
                   value={reviewForm.establishment_id}
@@ -1712,18 +1732,8 @@ function App() {
                     </option>
                   ))}
                 </select>
-                <div>
-                  <input
-                    className="input"
-                    placeholder="Review title"
-                    value={reviewForm.title}
-                    onChange={(event) =>
-                      setReviewForm({ ...reviewForm, title: event.target.value })
-                    }
-                  />
-                  <div style={{ marginTop: "6px", fontSize: "12px", color: "#6b7280" }}>
-                    {countWords(reviewForm.title)}/{MAX_REVIEW_TITLE_WORDS} palabras
-                  </div>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Describe tu experiencia con detalles: qué compraste o lo que sucedió, cómo te atendieron y la fecha aproximada. Evita incluir datos personales.
                 </div>
                 <textarea
                   className="input"
@@ -1734,6 +1744,9 @@ function App() {
                     setReviewForm({ ...reviewForm, description: event.target.value })
                   }
                 />
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Selecciona entre 1 (muy mala) y 5 (excelente). Las estrellas permiten a otros usuarios ver rápidamente tu valoración.
+                </div>
                 <div className="rating-picker" aria-label="Review stars">
                   {[1, 2, 3, 4, 5].map((starValue) => (
                     <button
@@ -1754,8 +1767,11 @@ function App() {
                     Clear
                   </button>
                 </div>
-                <div style={{ fontSize: "14px", color: "#374151" }}>
+                <div style={{ fontSize: "14px", color: "#374151", marginTop: "6px" }}>
                   Stars: <strong>{reviewForm.stars}</strong>/5
+                </div>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Opcional: indica el precio en soles (ej. 39.90). Solo valores numéricos para ayudar a comparar calidad/precio.
                 </div>
                 <input
                   className="input"
@@ -1766,6 +1782,9 @@ function App() {
                     setReviewForm({ ...reviewForm, price: event.target.value })
                   }
                 />
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Opcional: pega un enlace a la compra, ticket o producto para validar la reseña.
+                </div>
                 <input
                   className="input"
                   placeholder="Purchase URL"
@@ -1774,6 +1793,9 @@ function App() {
                     setReviewForm({ ...reviewForm, purchase_url: event.target.value })
                   }
                 />
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Usa tags separadas por comas para describir aspectos clave (ej.: delivery, atención, calidad). Ayuda a filtrar y buscar reseñas.
+                </div>
                 <input
                   className="input"
                   placeholder="Tags (comma separated)"
@@ -1782,17 +1804,12 @@ function App() {
                     setReviewForm({ ...reviewForm, tags: event.target.value })
                   }
                 />
-                <input
-                  className="input"
-                  type="file"
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                  Formato permitido: JPG, PNG, WEBP. Recomendado ≤ 2MB por imagen. Sube fotos claras del producto o recibo. Mínimo {MIN_REVIEW_EVIDENCE_IMAGES}, máximo {MAX_REVIEW_EVIDENCE_IMAGES} imágenes.
+                </div>
+                <FileUpload
                   accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file) {
-                      uploadReviewEvidenceImage(file)
-                    }
-                    event.target.value = ""
-                  }}
+                  onFile={(file) => uploadReviewEvidenceImage(file)}
                   disabled={uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
                 />
                 {uploadingReviewEvidence && <p>Subiendo evidencia...</p>}
@@ -1959,17 +1976,9 @@ function App() {
                   value={profile.name}
                   onChange={(event) => setProfile({ ...profile, name: event.target.value })}
                 />
-                <input
-                  className="input"
-                  type="file"
+                <FileUpload
                   accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file) {
-                      uploadProfileAvatar(file)
-                    }
-                    event.target.value = ""
-                  }}
+                  onFile={(file) => uploadProfileAvatar(file)}
                   disabled={uploadingAvatar || profileBusy}
                 />
                 {uploadingAvatar && <p>Subiendo avatar...</p>}
@@ -2029,17 +2038,9 @@ function App() {
                     setNewEstablishment({ ...newEstablishment, category: event.target.value })
                   }
                 />
-                <input
-                  className="input"
-                  type="file"
+                <FileUpload
                   accept="image/jpeg,image/png,image/webp"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file) {
-                      uploadEstablishmentImage(file)
-                    }
-                    event.target.value = ""
-                  }}
+                  onFile={(file) => uploadEstablishmentImage(file)}
                   disabled={uploadingEstablishmentImage}
                 />
                 <input
@@ -2113,17 +2114,9 @@ function App() {
                               setEditingEstablishment({ ...editingEstablishment, category: event.target.value })
                             }
                           />
-                          <input
-                            className="input"
-                            type="file"
+                          <FileUpload
                             accept="image/jpeg,image/png,image/webp"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0]
-                              if (file) {
-                                uploadEditingEstablishmentImage(file)
-                              }
-                              event.target.value = ""
-                            }}
+                            onFile={(file) => uploadEditingEstablishmentImage(file)}
                             disabled={uploadingEstablishmentImage || savingEstablishmentEdition}
                           />
                           <input
@@ -2210,17 +2203,9 @@ function App() {
               ) : (
                 <div className="input-group">
                   <label style={{ fontWeight: 600 }}>Avatar por defecto de usuarios</label>
-                  <input
-                    className="input"
-                    type="file"
+                  <FileUpload
                     accept="image/jpeg,image/png,image/webp"
-                    onChange={(event) => {
-                      const file = event.target.files?.[0]
-                      if (file) {
-                        uploadDefaultUserAvatar(file)
-                      }
-                      event.target.value = ""
-                    }}
+                    onFile={(file) => uploadDefaultUserAvatar(file)}
                     disabled={uploadingDefaultAvatar}
                   />
                   <input
