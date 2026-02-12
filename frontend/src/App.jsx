@@ -160,6 +160,7 @@ function App() {
     if (!RPC_URL) return null
     return new ethers.JsonRpcProvider(RPC_URL)
   }, [])
+  const hasWalletProvider = useMemo(() => typeof window !== "undefined" && Boolean(window.ethereum), [])
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -1321,6 +1322,7 @@ function App() {
         walletUserName={walletUserName}
         isConnected={Boolean(walletAddress && token)}
         isAdmin={Boolean(walletAddress && token && isAdmin)}
+        hasWalletProvider={hasWalletProvider}
         onWalletAction={handleWalletAction}
         onNavigate={setActivePage}
       />
@@ -1333,35 +1335,47 @@ function App() {
               <>
                 <p>Select a wallet provider to continue.</p>
                 <div className="pill" style={{ marginBottom: "12px" }}>{detectProvider()}</div>
-                <div className="wallet-grid">
-                  <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy
-                      ? walletFlowStep === "network"
-                        ? "Switching network..."
-                        : walletFlowStep === "accounts"
-                          ? "Requesting account..."
-                          : "Waiting signature..."
-                      : "MetaMask"}
-                  </button>
-                  <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy
-                      ? walletFlowStep === "network"
-                        ? "Switching network..."
-                        : walletFlowStep === "accounts"
-                          ? "Requesting account..."
-                          : "Waiting signature..."
-                      : "PaliWallet"}
-                  </button>
-                  <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                    {walletBusy
-                      ? walletFlowStep === "network"
-                        ? "Switching network..."
-                        : walletFlowStep === "accounts"
-                          ? "Requesting account..."
-                          : "Waiting signature..."
-                      : "Other Wallet"}
-                  </button>
-                </div>
+                {!hasWalletProvider ? (
+                  <div className="wallet-install-box">
+                    <p style={{ margin: 0 }}>
+                      No EVM wallet detected in this browser. You can still browse in read-only mode.
+                    </p>
+                    <div className="wallet-install-links">
+                      <a href="https://metamask.io/download/" target="_blank" rel="noreferrer">Install MetaMask</a>
+                      <a href="https://paliwallet.com/" target="_blank" rel="noreferrer">Install PaliWallet</a>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="wallet-grid">
+                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
+                      {walletBusy
+                        ? walletFlowStep === "network"
+                          ? "Switching network..."
+                          : walletFlowStep === "accounts"
+                            ? "Requesting account..."
+                            : "Waiting signature..."
+                        : "MetaMask"}
+                    </button>
+                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
+                      {walletBusy
+                        ? walletFlowStep === "network"
+                          ? "Switching network..."
+                          : walletFlowStep === "accounts"
+                            ? "Requesting account..."
+                            : "Waiting signature..."
+                        : "PaliWallet"}
+                    </button>
+                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
+                      {walletBusy
+                        ? walletFlowStep === "network"
+                          ? "Switching network..."
+                          : walletFlowStep === "accounts"
+                            ? "Requesting account..."
+                            : "Waiting signature..."
+                        : "Other Wallet"}
+                    </button>
+                  </div>
+                )}
               </>
             ) : (
               <>
