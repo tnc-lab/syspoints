@@ -1487,22 +1487,36 @@ function App() {
                 <div className="panel-header">
                   <h3 className="panel-title">Recent reviews</h3>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <div style={{ display: "flex", gap: "8px" }}>
+                    <div style={{ display: "flex", gap: "4px" }}>
                       <button
-                        className="ghost-button"
+                        className="ghost-button icon-button"
                         style={{ background: reviewsView === "list" ? "var(--surface-alt)" : "transparent" }}
                         onClick={() => setReviewsView("list")}
                         aria-pressed={reviewsView === "list"}
+                        aria-label="List view"
                       >
-                        Lista
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <line x1="8" y1="6" x2="21" y2="6"></line>
+                          <line x1="8" y1="12" x2="21" y2="12"></line>
+                          <line x1="8" y1="18" x2="21" y2="18"></line>
+                          <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                          <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                          <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                        </svg>
                       </button>
                       <button
-                        className="ghost-button"
+                        className="ghost-button icon-button"
                         style={{ background: reviewsView === "grid" ? "var(--surface-alt)" : "transparent" }}
                         onClick={() => setReviewsView("grid")}
                         aria-pressed={reviewsView === "grid"}
+                        aria-label="Grid view"
                       >
-                        Cuadrícula
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="7" height="7"></rect>
+                          <rect x="14" y="3" width="7" height="7"></rect>
+                          <rect x="14" y="14" width="7" height="7"></rect>
+                          <rect x="3" y="14" width="7" height="7"></rect>
+                        </svg>
                       </button>
                     </div>
                     <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
@@ -1588,25 +1602,35 @@ function App() {
                       <div className="reviews-cards">
                         {reviews.map((review, index) => (
                           <div className="review-card card" key={review.id}>
-                            <div className="review-row">
-                              <div className="review-thumb review-thumb-lg" style={{ padding: 0, overflow: "hidden" }}>
-                                {establishmentsById.get(review.establishment_id)?.image_url ? (
-                                  <img
-                                    src={establishmentsById.get(review.establishment_id)?.image_url}
-                                    alt={establishmentsById.get(review.establishment_id)?.name || "Establishment"}
-                                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                                  />
-                                ) : (
+                            <div className="card-image-wrap">
+                              {establishmentsById.get(review.establishment_id)?.image_url ? (
+                                <img
+                                  src={establishmentsById.get(review.establishment_id)?.image_url}
+                                  alt={establishmentsById.get(review.establishment_id)?.name || "Establishment"}
+                                  className="card-img"
+                                />
+                              ) : (
+                                <div className="card-img-placeholder">
                                   <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
-                                )}
-                              </div>
-                              <div style={{ width: "100%" }}>
-                                <div className="rank-pill">#{(reviewsMeta.page - 1) * DEFAULT_PAGE_SIZE + index + 1}</div>
+                                </div>
+                              )}
+                            </div>
+                            <div className="card-content">
+                              <div className="card-header-row">
                                 <div className="review-title">{review.title || "Untitled review"}</div>
-                                <div className="review-sub">{review.description}</div>
-                                {Array.isArray(review.tags) && review.tags.length > 0 && (
-                                  <div className="review-tags" style={{ marginTop: "8px" }}>
-                                    {review.tags.map((tag) => {
+                                <div className="review-stars">
+                                  {Number(review.stars) || 0} ★
+                                </div>
+                              </div>
+                              <div className="review-sub" style={{ fontWeight: 600, color: "var(--primary)", fontSize: "0.85rem", marginBottom: "6px" }}>
+                                {establishmentsById.get(review.establishment_id)?.name || "Unknown Place"}
+                              </div>
+                              <div className="review-sub card-desc">{review.description}</div>
+                              
+                              <div className="card-footer">
+                                {Array.isArray(review.tags) && review.tags.length > 0 ? (
+                                  <div className="review-tags">
+                                    {review.tags.slice(0, 3).map((tag) => {
                                       const tagColor = getTagColor(tag)
                                       return (
                                         <span
@@ -1618,18 +1642,14 @@ function App() {
                                         </span>
                                       )
                                     })}
+                                    {review.tags.length > 3 && <span className="tag" style={{background: "#f3f4f6"}}>+{review.tags.length - 3}</span>}
                                   </div>
-                                )}
+                                ) : <div />}
+                                
+                                <button className="primary-button alt watch-button" style={{ width: "100%", marginTop: "12px", padding: "8px" }} onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
+                                  {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
+                                </button>
                               </div>
-                            </div>
-                            <div className="review-actions review-actions-main" style={{ marginTop: "12px" }}>
-                              <div className="review-stars">
-                                {"★".repeat(Number(review.stars) || 0)}
-                                {"☆".repeat(5 - (Number(review.stars) || 0))}
-                              </div>
-                              <button className="primary-button alt watch-button" onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
-                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "Watch Now"}
-                              </button>
                             </div>
                           </div>
                         ))}
