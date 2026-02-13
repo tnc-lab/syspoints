@@ -80,7 +80,7 @@ const getWalletErrorMessage = (error, fallback = "Wallet connection failed.") =>
 const getChainProofErrorMessage = (error) => {
   const message = String(error?.message || "").trim()
   if (!message || /failed to fetch/i.test(message)) {
-    return "No se pudo consultar el nodo RPC en este momento. Verifica VITE_RPC_URL, CORS y conexión de red."
+    return "La verificación en blockchain no está disponible temporalmente."
   }
   if (
     /method only available when connected on evm chains/i.test(message) ||
@@ -1166,6 +1166,17 @@ function App() {
     try {
       const review = await apiFetch(`/reviews/${reviewId}`)
       setSelectedReview(review)
+      const hasStoredTxHash = Boolean(review?.tx_hash)
+      const blockTimestampMs = review?.block_timestamp ? new Date(review.block_timestamp).getTime() : null
+      setReviewChainInfo({
+        loading: false,
+        anchored: hasStoredTxHash,
+        txHash: review?.tx_hash || "",
+        blockNumber: review?.block_number ?? null,
+        blockTimestamp: Number.isFinite(blockTimestampMs) ? blockTimestampMs : null,
+        unavailable: "",
+        error: "",
+      })
       setActivePage("review-detail")
     } catch (error) {
       setAuthStatus(error?.message || "No se pudo cargar el detalle del review.")
@@ -1176,6 +1187,21 @@ function App() {
   }
 
   const fetchReviewChainProof = async (review) => {
+    if (!walletAddress) {
+      const hasStoredTxHash = Boolean(review?.tx_hash)
+      const blockTimestampMs = review?.block_timestamp ? new Date(review.block_timestamp).getTime() : null
+      setReviewChainInfo({
+        loading: false,
+        anchored: hasStoredTxHash,
+        txHash: review?.tx_hash || "",
+        blockNumber: review?.block_number ?? null,
+        blockTimestamp: Number.isFinite(blockTimestampMs) ? blockTimestampMs : null,
+        unavailable: "",
+        error: "",
+      })
+      return
+    }
+
     if (!review?.review_hash) {
       setReviewChainInfo({
         loading: false,
@@ -1268,7 +1294,7 @@ function App() {
       const readOnlyUnavailable =
         !walletAddress &&
         !hasWalletProvider &&
-        /No se pudo consultar el nodo RPC/i.test(proofError)
+        /verificación en blockchain no está disponible temporalmente/i.test(proofError)
       setReviewChainInfo({
         loading: false,
         anchored: false,
@@ -2157,23 +2183,6 @@ function App() {
                                 <code style={{ wordBreak: "break-all" }}>{`${explorerBaseUrl}/tx/${reviewChainInfo.txHash}`}</code>
                               </div>
                             </>
-                          )}
-                        </div>
-                      )}
-                      {!reviewChainInfo.loading && !reviewChainInfo.anchored && selectedReview.tx_hash && (
-                        <div style={{ display: "grid", gap: "6px" }}>
-                          <div className="pill" style={{ width: "fit-content", color: "#1e3a8a", background: "#dbeafe" }}>
-                            Tx hash recorded by backend
-                          </div>
-                          <div>
-                            Tx hash:
-                            {" "}
-                            <code style={{ wordBreak: "break-all" }}>{selectedReview.tx_hash}</code>
-                          </div>
-                          {explorerBaseUrl && (
-                            <a href={`${explorerBaseUrl}/tx/${selectedReview.tx_hash}`} target="_blank" rel="noreferrer">
-                              View transaction on explorer
-                            </a>
                           )}
                         </div>
                       )}
