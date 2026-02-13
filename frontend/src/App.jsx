@@ -173,8 +173,10 @@ function App() {
   const [reviewsMeta, setReviewsMeta] = useState({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0 })
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderMeta, setLeaderMeta] = useState({ page: 1, page_size: 5, total: 0 })
+  const [topEstablishments, setTopEstablishments] = useState([])
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
+  const [loadingTopEstablishments, setLoadingTopEstablishments] = useState(false)
   const [establishments, setEstablishments] = useState([])
   const [reviewsView, setReviewsView] = useState("list")
   const [selectedReview, setSelectedReview] = useState(null)
@@ -326,6 +328,7 @@ function App() {
   useEffect(() => {
     fetchReviews(1)
     fetchLeaderboard(1)
+    fetchTopEstablishments(1)
     fetchEstablishments()
   }, [])
 
@@ -1142,6 +1145,18 @@ function App() {
     }
   }
 
+  const fetchTopEstablishments = async (page = 1) => {
+    setLoadingTopEstablishments(true)
+    try {
+      const result = await apiFetch(`/establishments/top-reviewed?page=${page}&page_size=5`)
+      setTopEstablishments(result.data || [])
+    } catch {
+      setTopEstablishments([])
+    } finally {
+      setLoadingTopEstablishments(false)
+    }
+  }
+
   const fetchEstablishments = async () => {
     try {
       const result = await apiFetch("/establishments")
@@ -1922,33 +1937,90 @@ function App() {
                 )}
               </section>
 
-              <aside className="panel leaderboard-panel">
-                <div className="panel-header">
-                  <h3 className="panel-title">Leaderboard</h3>
-                  <span className="pill">Top</span>
-                </div>
-                {loadingLeaderboard ? (
-                  <p>Loading leaderboard...</p>
-                ) : (
-                  leaderboard.map((entry, index) => (
-                    <div className="leaderboard-entry" key={entry.user_id || index}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                        <strong>#{index + 1}</strong>
-                        <img
-                          src={(entry.avatar_url || "").trim() || getDefaultAvatarUrl(entry.user_id || entry.name || index)}
-                          alt={entry.name || "User"}
-                          style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover", border: "1px solid #e5e7eb" }}
-                        />
-                        <span>{entry.name || "Anon"}</span>
+              <div className="sidebar-panels leaderboard-panel">
+                <aside className="panel">
+                  <div className="panel-header">
+                    <h3 className="panel-title">Leaderboard</h3>
+                    <span className="pill">Top</span>
+                  </div>
+                  {loadingLeaderboard ? (
+                    <p>Loading leaderboard...</p>
+                  ) : (
+                    leaderboard.map((entry, index) => (
+                      <div className="leaderboard-entry" key={entry.user_id || index}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <strong>#{index + 1}</strong>
+                          <img
+                            src={(entry.avatar_url || "").trim() || getDefaultAvatarUrl(entry.user_id || entry.name || index)}
+                            alt={entry.name || "User"}
+                            style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover", border: "1px solid #e5e7eb" }}
+                          />
+                          <span>{entry.name || "Anon"}</span>
+                        </div>
+                        <div className="pill">{entry.total_points} pts</div>
                       </div>
-                      <div className="pill">{entry.total_points} pts</div>
-                    </div>
-                  ))
-                )}
-                <button className="ghost-button" style={{ marginTop: "16px" }}>
-                  View full ranking
-                </button>
-              </aside>
+                    ))
+                  )}
+                  <button className="ghost-button" style={{ marginTop: "16px" }}>
+                    View full ranking
+                  </button>
+                </aside>
+
+                <aside className="panel">
+                  <div className="panel-header">
+                    <h3 className="panel-title">Top Establishments</h3>
+                    <span className="pill">Reviews</span>
+                  </div>
+                  {loadingTopEstablishments ? (
+                    <p>Loading top establishments...</p>
+                  ) : topEstablishments.length === 0 ? (
+                    <p>No hay reviews suficientes todavía.</p>
+                  ) : (
+                    topEstablishments.map((entry, index) => {
+                      const stars = Math.round(Number(entry.avg_stars || 0))
+                      return (
+                        <div className="leaderboard-entry" key={entry.id || index}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <strong>#{index + 1}</strong>
+                            {(entry.image_url || "").trim() ? (
+                              <img
+                                src={(entry.image_url || "").trim()}
+                                alt={entry.name || "Establishment"}
+                                style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover", border: "1px solid #e5e7eb" }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: "34px",
+                                  height: "34px",
+                                  borderRadius: "50%",
+                                  border: "1px solid #e5e7eb",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  background: "var(--surface-alt)",
+                                  color: "var(--muted)",
+                                  fontWeight: 700,
+                                  fontSize: "0.78rem",
+                                }}
+                              >
+                                {(entry.name || "E")?.[0] || "E"}
+                              </div>
+                            )}
+                            <span>{entry.name || "Establishment"}</span>
+                          </div>
+                          <div style={{ display: "grid", justifyItems: "end", gap: "3px" }}>
+                            <div className="pill">{Number(entry.review_count || 0)} reviews</div>
+                            <div className="review-stars" style={{ fontSize: "0.82rem" }}>
+                              {"★".repeat(stars)}
+                              {"☆".repeat(5 - stars)} ({Number(entry.avg_stars || 0).toFixed(1)})
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </aside>
+              </div>
             </div>
           </>
         )}

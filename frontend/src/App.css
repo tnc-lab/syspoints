@@ -498,6 +498,11 @@
   top: 24px;
 }
 
+.sidebar-panels {
+  display: grid;
+  gap: 16px;
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;
