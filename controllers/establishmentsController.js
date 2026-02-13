@@ -20,6 +20,26 @@ async function listEstablishments(req, res, next) {
   }
 }
 
+async function listTopReviewedEstablishments(req, res, next) {
+  try {
+    const page = Number(req.query.page || 1);
+    const pageSize = Number(req.query.page_size || 5);
+
+    if (!Number.isInteger(page) || page < 1) {
+      throw new ApiError(400, 'page must be a positive integer');
+    }
+
+    if (!Number.isInteger(pageSize) || pageSize < 1 || pageSize > 100) {
+      throw new ApiError(400, 'page_size must be an integer between 1 and 100');
+    }
+
+    const result = await establishmentService.listTopReviewedEstablishments({ page, pageSize });
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function createEstablishment(req, res, next) {
   try {
     const { name, category, image_url } = req.body || {};
@@ -118,4 +138,10 @@ async function uploadEstablishmentImage(req, res, next) {
   }
 }
 
-module.exports = { listEstablishments, createEstablishment, updateEstablishment, uploadEstablishmentImage };
+module.exports = {
+  listEstablishments,
+  listTopReviewedEstablishments,
+  createEstablishment,
+  updateEstablishment,
+  uploadEstablishmentImage,
+};
