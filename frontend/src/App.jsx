@@ -1264,14 +1264,21 @@ function App() {
     }
 
     if (lastError) {
+      const proofError = getChainProofErrorMessage(lastError)
+      const readOnlyUnavailable =
+        !walletAddress &&
+        !hasWalletProvider &&
+        /No se pudo consultar el nodo RPC/i.test(proofError)
       setReviewChainInfo({
         loading: false,
         anchored: false,
         txHash: "",
         blockNumber: null,
         blockTimestamp: null,
-        unavailable: "",
-        error: getChainProofErrorMessage(lastError),
+        unavailable: readOnlyUnavailable
+          ? "Verificación on-chain no disponible temporalmente en modo lectura. Conecta una wallet EVM o revisa la configuración RPC (VITE_RPC_URL/CORS)."
+          : "",
+        error: readOnlyUnavailable ? "" : proofError,
       })
     }
   }
@@ -1417,7 +1424,33 @@ function App() {
           message: "Transaction submitted. Waiting for confirmation...",
         }))
 
-        await tx.wait()
+        const receipt = await tx.wait()
+        let blockTimestampIso = null
+        if (receipt?.blockNumber != null) {
+          try {
+            const block = await provider.getBlock(receipt.blockNumber)
+            if (block?.timestamp) {
+              blockTimestampIso = new Date(Number(block.timestamp) * 1000).toISOString()
+            }
+          } catch {
+            blockTimestampIso = null
+          }
+        }
+
+        try {
+          await apiFetch(`/reviews/${reviewId}/anchor-tx`, {
+            method: "POST",
+            body: JSON.stringify({
+              tx_hash: txHash,
+              chain_id: Number(CHAIN_ID) || null,
+              block_number: receipt?.blockNumber ?? null,
+              block_timestamp: blockTimestampIso,
+            }),
+          })
+        } catch {
+          // keep UX successful even if metadata persistence fails
+        }
+
         setReviewTx((prev) => ({
           ...prev,
           step: "success",
@@ -2127,7 +2160,24 @@ function App() {
                           )}
                         </div>
                       )}
-                      {!reviewChainInfo.loading && !reviewChainInfo.anchored && !reviewChainInfo.error && !reviewChainInfo.unavailable && (
+                      {!reviewChainInfo.loading && !reviewChainInfo.anchored && selectedReview.tx_hash && (
+                        <div style={{ display: "grid", gap: "6px" }}>
+                          <div className="pill" style={{ width: "fit-content", color: "#1e3a8a", background: "#dbeafe" }}>
+                            Tx hash recorded by backend
+                          </div>
+                          <div>
+                            Tx hash:
+                            {" "}
+                            <code style={{ wordBreak: "break-all" }}>{selectedReview.tx_hash}</code>
+                          </div>
+                          {explorerBaseUrl && (
+                            <a href={`${explorerBaseUrl}/tx/${selectedReview.tx_hash}`} target="_blank" rel="noreferrer">
+                              View transaction on explorer
+                            </a>
+                          )}
+                        </div>
+                      )}
+                      {!reviewChainInfo.loading && !reviewChainInfo.anchored && !selectedReview.tx_hash && !reviewChainInfo.error && !reviewChainInfo.unavailable && (
                         <div className="pill" style={{ width: "fit-content", color: "#92400e", background: "#fef3c7" }}>
                           Pending anchor or event not found yet
                         </div>
