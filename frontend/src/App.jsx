@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ethers } from "ethers"
 
 import Header from "./components/Header"
@@ -13,6 +13,54 @@ const ESTABLISHMENT_IMAGE_MAX_DIMENSION = 960
 const MAX_REVIEW_EVIDENCE_IMAGES = 3
 const MIN_REVIEW_EVIDENCE_IMAGES = 1
 const MAX_REVIEW_TITLE_WORDS = 12
+const WALLET_OPTION_CONFIG = {
+  metamask: {
+    key: "metamask",
+    label: "MetaMask",
+    installUrl: "https://metamask.io/download/",
+  },
+  pali: {
+    key: "pali",
+    label: "PaliWallet",
+    installUrl: "https://paliwallet.com/",
+  },
+  other: {
+    key: "other",
+    label: "Other Wallet",
+    installUrl: "",
+  },
+}
+
+const getInjectedProviders = () => {
+  if (typeof window === "undefined" || !window.ethereum) return []
+  if (Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0) {
+    return window.ethereum.providers
+  }
+  return [window.ethereum]
+}
+
+const isMetaMaskProvider = (provider) => Boolean(provider?.isMetaMask)
+const isPaliProvider = (provider) => Boolean(provider?.isPaliWallet)
+
+const resolveWalletProvider = (walletType) => {
+  const providers = getInjectedProviders()
+  if (!providers.length) return null
+
+  if (walletType === "metamask") {
+    return providers.find((provider) => isMetaMaskProvider(provider)) || null
+  }
+
+  if (walletType === "pali") {
+    return providers.find((provider) => isPaliProvider(provider)) || null
+  }
+
+  if (walletType === "other") {
+    return providers.find((provider) => !isMetaMaskProvider(provider) && !isPaliProvider(provider)) || null
+  }
+
+  return null
+}
+
 const normalizeAddress = (value) => {
   try {
     return value ? ethers.getAddress(value) : ""
@@ -24,13 +72,15 @@ const normalizeAddress = (value) => {
 const getWalletErrorMessage = (error, fallback = "Wallet connection failed.") => {
   if (error?.code === 4001) return "Request rejected in wallet."
   if (error?.code === -32002) return "Wallet request already pending. Open your wallet extension."
+  if (error?.code === 4100) return "Wallet access not authorized. Approve this dApp in your wallet."
+  if (error?.message === "No wallet account available.") return "No account found in this wallet. Create or import an account first."
   return error?.message || fallback
 }
 
 const getChainProofErrorMessage = (error) => {
   const message = String(error?.message || "").trim()
   if (!message || /failed to fetch/i.test(message)) {
-    return "No se pudo consultar la red en este momento (RPC/Explorer). Verifica VITE_RPC_URL y conexión."
+    return "No se pudo consultar el nodo RPC en este momento. Verifica VITE_RPC_URL, CORS y conexión de red."
   }
   if (
     /method only available when connected on evm chains/i.test(message) ||
@@ -82,8 +132,14 @@ function App() {
   const [walletModalMode, setWalletModalMode] = useState("connect")
   const [walletModalStatus, setWalletModalStatus] = useState("")
   const [walletFlowStep, setWalletFlowStep] = useState("idle")
+  const [walletSelection, setWalletSelection] = useState("")
   const [showTxModal, setShowTxModal] = useState(false)
   const [txModalVisible, setTxModalVisible] = useState(false)
+  const [submittingReview, setSubmittingReview] = useState(false)
+  const [reviewSubmissionState, setReviewSubmissionState] = useState({
+    key: "",
+    signature: "",
+  })
   const [reviewTx, setReviewTx] = useState({
     step: "idle",
     message: "",
@@ -93,6 +149,7 @@ function App() {
   })
   const [walletBusy, setWalletBusy] = useState(false)
   const [activePage, setActivePage] = useState("reviews")
+  const activeWalletProviderRef = useRef(null)
 
   const [profile, setProfile] = useState({
     name: "",
@@ -129,6 +186,7 @@ function App() {
     txHash: "",
     blockNumber: null,
     blockTimestamp: null,
+    unavailable: "",
     error: "",
   })
   const [adminStatus, setAdminStatus] = useState("")
@@ -154,15 +212,36 @@ function App() {
   const [savingEstablishmentEdition, setSavingEstablishmentEdition] = useState(false)
 
   const getWalletProvider = () => {
-    if (!window.ethereum) return null
-    return new ethers.BrowserProvider(window.ethereum)
+    const provider = activeWalletProviderRef.current || (typeof window !== "undefined" ? window.ethereum : null)
+    if (!provider) return null
+    return new ethers.BrowserProvider(provider)
   }
 
   const readProvider = useMemo(() => {
     if (!RPC_URL) return null
     return new ethers.JsonRpcProvider(RPC_URL)
   }, [])
-  const hasWalletProvider = useMemo(() => typeof window !== "undefined" && Boolean(window.ethereum), [])
+  const hasWalletProvider = useMemo(() => getInjectedProviders().length > 0, [])
+  const walletOptions = useMemo(() => {
+    return [
+      {
+        ...WALLET_OPTION_CONFIG.metamask,
+        available: Boolean(resolveWalletProvider("metamask")),
+      },
+      {
+        ...WALLET_OPTION_CONFIG.pali,
+        available: Boolean(resolveWalletProvider("pali")),
+      },
+      {
+        ...WALLET_OPTION_CONFIG.other,
+        available: Boolean(resolveWalletProvider("other")),
+      },
+    ]
+  }, [])
+  const missingInstallWallets = useMemo(
+    () => walletOptions.filter((option) => !option.available && option.installUrl),
+    [walletOptions]
+  )
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -298,13 +377,14 @@ function App() {
     return data
   }
 
-  const ensureNetwork = async () => {
+  const ensureNetwork = async (providerOverride = null) => {
     const chainId = Number(import.meta.env.VITE_CHAIN_ID)
-    if (!window.ethereum || !chainId) return
+    const provider = providerOverride || activeWalletProviderRef.current || (typeof window !== "undefined" ? window.ethereum : null)
+    if (!provider || !chainId) return
     const hexChainId = `0x${chainId.toString(16)}`
 
     try {
-      await window.ethereum.request({
+      await provider.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: hexChainId }],
       })
@@ -313,7 +393,7 @@ function App() {
         throw new Error("Network switch rejected in wallet.")
       }
       if (err.code === 4902) {
-        await window.ethereum.request({
+        await provider.request({
           method: "wallet_addEthereumChain",
           params: [
             {
@@ -363,14 +443,15 @@ function App() {
     }
   }
 
-  const signInWithWallet = async (address, fallbackName = "") => {
+  const signInWithWallet = async (address, fallbackName = "", providerOverride = null) => {
     const normalizedAddress = normalizeAddress(address)
-    const provider = getWalletProvider()
-    if (!normalizedAddress || !provider) {
+    const providerSource = providerOverride || activeWalletProviderRef.current || (typeof window !== "undefined" ? window.ethereum : null)
+    if (!normalizedAddress || !providerSource) {
       throw new Error("Connect your wallet first.")
     }
+    const provider = new ethers.BrowserProvider(providerSource)
 
-    await ensureNetwork()
+    await ensureNetwork(providerSource)
     const nonceResponse = await apiFetch("/auth/nonce", {
       method: "POST",
       body: JSON.stringify({ wallet_address: normalizedAddress }),
@@ -399,22 +480,32 @@ function App() {
     return { needsRegistration: false }
   }
 
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      setWalletModalStatus("Wallet provider not found. Install MetaMask or PaliWallet.")
+  const connectWallet = async (walletType = "other") => {
+    const selectedOption = WALLET_OPTION_CONFIG[walletType] || WALLET_OPTION_CONFIG.other
+    const provider = resolveWalletProvider(walletType)
+    if (!provider) {
+      if (selectedOption.installUrl) {
+        setWalletModalStatus(`${selectedOption.label} is not installed in this browser. Install it and try again.`)
+      } else if (!hasWalletProvider) {
+        setWalletModalStatus("Wallet provider not found. Install MetaMask or PaliWallet.")
+      } else {
+        setWalletModalStatus("No compatible injected wallet found for this option.")
+      }
       return
     }
 
+    activeWalletProviderRef.current = provider
+    setWalletSelection(walletType)
     setWalletBusy(true)
     setWalletFlowStep("network")
     setWalletModalStatus("")
     try {
       setWalletModalStatus("Switching network to Syscoin Devnet...")
-      await ensureNetwork()
+      await ensureNetwork(provider)
 
       setWalletFlowStep("accounts")
       setWalletModalStatus("Requesting wallet account...")
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" })
+      const accounts = await provider.request({ method: "eth_requestAccounts" })
       const address = normalizeAddress(accounts?.[0] || "")
       if (!address) {
         throw new Error("No wallet account available.")
@@ -423,7 +514,7 @@ function App() {
       setWalletAddress(address)
       setWalletFlowStep("signin")
       setWalletModalStatus("Please sign the login message in your wallet.")
-      const signInResult = await signInWithWallet(address)
+      const signInResult = await signInWithWallet(address, "", provider)
 
       if (signInResult.needsRegistration) {
         setWalletModalMode("register")
@@ -438,11 +529,12 @@ function App() {
       setTimeout(() => closeWalletModal(), 250)
     } catch (error) {
       setWalletFlowStep("idle")
-      const message = getWalletErrorMessage(error, "Wallet connection failed.")
+      const message = getWalletErrorMessage(error, `${selectedOption.label} connection failed.`)
       setWalletModalStatus(message)
       setAuthStatus(message)
     } finally {
       setWalletBusy(false)
+      setWalletSelection("")
     }
   }
 
@@ -454,6 +546,7 @@ function App() {
   }
 
   const disconnectWallet = () => {
+    activeWalletProviderRef.current = null
     setWalletAddress("")
     setWrongNetwork(false)
     clearSession()
@@ -473,6 +566,7 @@ function App() {
     setWalletModalMode("connect")
     setWalletModalStatus("")
     setWalletFlowStep("idle")
+    setWalletSelection("")
     setWalletBusy(false)
     setModalVisible(false)
     setTimeout(() => setShowWalletModal(false), 200)
@@ -491,14 +585,60 @@ function App() {
   }
 
   const detectProvider = () => {
-    if (!window.ethereum) return "No provider detected"
-    if (window.ethereum.isMetaMask) return "MetaMask detected"
-    if (window.ethereum.isPaliWallet) return "PaliWallet detected"
-    return "Injected wallet detected"
+    const providers = getInjectedProviders()
+    if (!providers.length) return "No provider detected"
+    const labels = []
+    if (providers.some((provider) => isMetaMaskProvider(provider))) labels.push("MetaMask")
+    if (providers.some((provider) => isPaliProvider(provider))) labels.push("PaliWallet")
+    if (providers.some((provider) => !isMetaMaskProvider(provider) && !isPaliProvider(provider))) labels.push("Other Wallet")
+    return labels.length ? `${labels.join(" + ")} detected` : "Injected wallet detected"
   }
 
   const countWords = (text) =>
     String(text || "").trim().split(/\s+/).filter(Boolean).length
+
+  const createClientIdempotencyKey = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID()
+    }
+    return `review-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  const ensureSufficientAnchorFunds = async ({ provider, address, establishmentId }) => {
+    if (!provider || !address || !establishmentId) {
+      throw new Error("Missing wallet context for transaction pre-check.")
+    }
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider)
+    const preflightReviewHash = ethers.solidityPackedKeccak256(
+      ["string"],
+      [`preflight-${Date.now()}`]
+    )
+    const establishmentHash = ethers.solidityPackedKeccak256(
+      ["string"],
+      [String(establishmentId)]
+    )
+    const gasEstimate = await contract.anchorReview.estimateGas(
+      address,
+      preflightReviewHash,
+      establishmentHash
+    )
+    const feeData = await provider.getFeeData()
+    const gasPrice = feeData?.maxFeePerGas ?? feeData?.gasPrice
+    if (!gasPrice || gasPrice <= 0n) {
+      throw new Error("No se pudo estimar el fee de red. Intenta de nuevo.")
+    }
+
+    // Include a 20% buffer for fee volatility between estimation and submission.
+    const requiredWei = (gasEstimate * gasPrice * 120n) / 100n
+    const balanceWei = await provider.getBalance(address)
+    if (balanceWei < requiredWei) {
+      const currentBalance = Number(ethers.formatEther(balanceWei)).toFixed(6)
+      const requiredBalance = Number(ethers.formatEther(requiredWei)).toFixed(6)
+      throw new Error(
+        `Fondos insuficientes en tSYS para gas. Balance: ${currentBalance} tSYS, requerido aprox: ${requiredBalance} tSYS.`
+      )
+    }
+  }
 
   const getTagColor = (tag) => {
     const seed = String(tag || "")
@@ -1020,6 +1160,7 @@ function App() {
       txHash: "",
       blockNumber: null,
       blockTimestamp: null,
+      unavailable: "",
       error: "",
     })
     try {
@@ -1042,6 +1183,7 @@ function App() {
         txHash: "",
         blockNumber: null,
         blockTimestamp: null,
+        unavailable: "",
         error: "Review hash not available.",
       })
       return
@@ -1063,18 +1205,27 @@ function App() {
       }
     }
     if (providerCandidates.length === 0 || !CONTRACT_ADDRESS) {
+      let unavailable = "No hay provider blockchain disponible para verificar este review."
+      if (!CONTRACT_ADDRESS) {
+        unavailable = "La verificación on-chain no está configurada en este entorno (falta VITE_CONTRACT_ADDRESS)."
+      } else if (!readProvider && !walletAddress) {
+        unavailable = "Verificación on-chain no disponible en modo lectura. Conecta una wallet EVM en Syscoin Devnet o configura VITE_RPC_URL."
+      } else if (!readProvider) {
+        unavailable = "No hay RPC de lectura configurado. Define VITE_RPC_URL para consultar la prueba sin depender de la wallet."
+      }
       setReviewChainInfo({
         loading: false,
         anchored: false,
         txHash: "",
         blockNumber: null,
         blockTimestamp: null,
-        error: "No hay provider blockchain disponible. Configura VITE_RPC_URL o conecta wallet en Syscoin Devnet.",
+        unavailable,
+        error: "",
       })
       return
     }
 
-    setReviewChainInfo((prev) => ({ ...prev, loading: true, error: "" }))
+    setReviewChainInfo((prev) => ({ ...prev, loading: true, unavailable: "", error: "" }))
     let lastError = null
     for (const currentProvider of providerCandidates) {
       try {
@@ -1090,6 +1241,7 @@ function App() {
             txHash: "",
             blockNumber: null,
             blockTimestamp: null,
+            unavailable: "",
             error: "",
           })
           return
@@ -1102,6 +1254,7 @@ function App() {
           txHash: latestLog.transactionHash || "",
           blockNumber: latestLog.blockNumber || null,
           blockTimestamp: block?.timestamp ? Number(block.timestamp) * 1000 : null,
+          unavailable: "",
           error: "",
         })
         return
@@ -1117,14 +1270,22 @@ function App() {
         txHash: "",
         blockNumber: null,
         blockTimestamp: null,
+        unavailable: "",
         error: getChainProofErrorMessage(lastError),
       })
     }
   }
 
   const submitReview = async () => {
+    if (submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending") {
+      return
+    }
+
+    setSubmittingReview(true)
+
     if (!token) {
       setAuthStatus("Sign in with your wallet before posting a review.")
+      setSubmittingReview(false)
       return
     }
 
@@ -1195,8 +1356,28 @@ function App() {
         evidence_images: reviewForm.evidence_images,
       }
 
+      const provider = getWalletProvider()
+      if (!provider) {
+        throw new Error("Wallet provider not found.")
+      }
+      await ensureSufficientAnchorFunds({
+        provider,
+        address: walletAddress,
+        establishmentId: reviewForm.establishment_id,
+      })
+
+      const requestSignature = JSON.stringify(body)
+      let idempotencyKey = reviewSubmissionState.key
+      if (!idempotencyKey || reviewSubmissionState.signature !== requestSignature) {
+        idempotencyKey = createClientIdempotencyKey()
+        setReviewSubmissionState({ key: idempotencyKey, signature: requestSignature })
+      }
+
       const created = await apiFetch("/reviews", {
         method: "POST",
+        headers: {
+          "Idempotency-Key": idempotencyKey,
+        },
         body: JSON.stringify(body),
       })
 
@@ -1205,10 +1386,6 @@ function App() {
 
       // On-chain anchoring (user pays gas)
       if (reviewId) {
-        const provider = getWalletProvider()
-        if (!provider) {
-          throw new Error("Wallet provider not found.")
-        }
         const signer = await provider.getSigner()
         const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer)
         setReviewTx((prev) => ({
@@ -1268,6 +1445,7 @@ function App() {
         tags: "",
         evidence_images: [],
       })
+      setReviewSubmissionState({ key: "", signature: "" })
       setAuthStatus("Review submitted and anchored on-chain.")
       fetchReviews(1)
       fetchLeaderboard(leaderMeta.page)
@@ -1280,6 +1458,8 @@ function App() {
         step: "error",
         message,
       }))
+    } finally {
+      setSubmittingReview(false)
     }
   }
 
@@ -1348,35 +1528,58 @@ function App() {
                     </div>
                   </div>
                 ) : (
-                  <div className="wallet-grid">
-                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                      {walletBusy
-                        ? walletFlowStep === "network"
-                          ? "Switching network..."
-                          : walletFlowStep === "accounts"
-                            ? "Requesting account..."
-                            : "Waiting signature..."
-                        : "MetaMask"}
-                    </button>
-                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                      {walletBusy
-                        ? walletFlowStep === "network"
-                          ? "Switching network..."
-                          : walletFlowStep === "accounts"
-                            ? "Requesting account..."
-                            : "Waiting signature..."
-                        : "PaliWallet"}
-                    </button>
-                    <button className="wallet-button" onClick={connectWallet} disabled={walletBusy}>
-                      {walletBusy
-                        ? walletFlowStep === "network"
-                          ? "Switching network..."
-                          : walletFlowStep === "accounts"
-                            ? "Requesting account..."
-                            : "Waiting signature..."
-                        : "Other Wallet"}
-                    </button>
-                  </div>
+                  <>
+                    <div className="wallet-grid">
+                      <button className="wallet-button" onClick={() => connectWallet("metamask")} disabled={walletBusy || !walletOptions[0].available}>
+                        {walletBusy
+                          ? walletSelection === "metamask" && walletFlowStep === "network"
+                            ? "Switching network..."
+                            : walletSelection === "metamask" && walletFlowStep === "accounts"
+                              ? "Requesting account..."
+                              : walletSelection === "metamask"
+                                ? "Waiting signature..."
+                                : "MetaMask"
+                          : walletOptions[0].available
+                            ? "MetaMask"
+                            : "MetaMask (Not installed)"}
+                      </button>
+                      <button className="wallet-button" onClick={() => connectWallet("pali")} disabled={walletBusy || !walletOptions[1].available}>
+                        {walletBusy
+                          ? walletSelection === "pali" && walletFlowStep === "network"
+                            ? "Switching network..."
+                            : walletSelection === "pali" && walletFlowStep === "accounts"
+                              ? "Requesting account..."
+                              : walletSelection === "pali"
+                                ? "Waiting signature..."
+                                : "PaliWallet"
+                          : walletOptions[1].available
+                            ? "PaliWallet"
+                            : "PaliWallet (Not installed)"}
+                      </button>
+                      <button className="wallet-button" onClick={() => connectWallet("other")} disabled={walletBusy || !walletOptions[2].available}>
+                        {walletBusy
+                          ? walletSelection === "other" && walletFlowStep === "network"
+                            ? "Switching network..."
+                            : walletSelection === "other" && walletFlowStep === "accounts"
+                              ? "Requesting account..."
+                              : walletSelection === "other"
+                                ? "Waiting signature..."
+                                : "Other Wallet"
+                          : walletOptions[2].available
+                            ? "Other Wallet"
+                            : "Other Wallet (Not detected)"}
+                      </button>
+                    </div>
+                    {missingInstallWallets.length > 0 && (
+                      <div className="wallet-install-links" style={{ marginTop: "10px" }}>
+                        {missingInstallWallets.map((option) => (
+                          <a key={option.key} href={option.installUrl} target="_blank" rel="noreferrer">
+                            Install {option.label}
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             ) : (
@@ -1833,8 +2036,14 @@ function App() {
                   </div>
                 </div>
               </div>
-              <button className="primary-button" onClick={submitReview}>
-                Submit review
+              <button
+                className="primary-button"
+                onClick={submitReview}
+                disabled={submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"}
+              >
+                {submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"
+                  ? "Submitting..."
+                  : "Submit review"}
               </button>
               {authStatus && (
                 <div style={{ marginTop: "12px", color: "#e85151" }}>
@@ -1918,9 +2127,14 @@ function App() {
                           )}
                         </div>
                       )}
-                      {!reviewChainInfo.loading && !reviewChainInfo.anchored && !reviewChainInfo.error && (
+                      {!reviewChainInfo.loading && !reviewChainInfo.anchored && !reviewChainInfo.error && !reviewChainInfo.unavailable && (
                         <div className="pill" style={{ width: "fit-content", color: "#92400e", background: "#fef3c7" }}>
                           Pending anchor or event not found yet
+                        </div>
+                      )}
+                      {reviewChainInfo.unavailable && (
+                        <div className="pill" style={{ width: "fit-content", color: "#92400e", background: "#fef3c7" }}>
+                          {reviewChainInfo.unavailable}
                         </div>
                       )}
                       {reviewChainInfo.error && (
