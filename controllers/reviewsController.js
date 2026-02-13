@@ -153,6 +153,54 @@ async function getReviewById(req, res, next) {
   }
 }
 
+async function saveReviewAnchorTx(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { tx_hash, chain_id, block_number, block_timestamp } = req.body || {};
+
+    if (!isValidUuid(id)) {
+      throw new ApiError(400, 'id must be a UUID');
+    }
+
+    if (!isNonEmptyString(tx_hash) || !/^0x[a-fA-F0-9]{64}$/.test(tx_hash)) {
+      throw new ApiError(400, 'tx_hash must be a valid transaction hash');
+    }
+
+    const normalizedChainId = chain_id == null ? null : Number(chain_id);
+    if (normalizedChainId != null && (!Number.isInteger(normalizedChainId) || normalizedChainId <= 0)) {
+      throw new ApiError(400, 'chain_id must be a positive integer');
+    }
+
+    const normalizedBlockNumber = block_number == null ? null : Number(block_number);
+    if (normalizedBlockNumber != null && (!Number.isInteger(normalizedBlockNumber) || normalizedBlockNumber < 0)) {
+      throw new ApiError(400, 'block_number must be a non-negative integer');
+    }
+
+    let normalizedBlockTimestamp = null;
+    if (block_timestamp != null) {
+      const parsed = new Date(block_timestamp);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new ApiError(400, 'block_timestamp must be a valid datetime');
+      }
+      normalizedBlockTimestamp = parsed.toISOString();
+    }
+
+    const result = await reviewService.saveReviewAnchorTx({
+      reviewId: id,
+      requesterId: req.auth?.sub,
+      requesterRole: req.auth?.role,
+      txHash: tx_hash,
+      chainId: normalizedChainId,
+      blockNumber: normalizedBlockNumber,
+      blockTimestamp: normalizedBlockTimestamp,
+    });
+
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 async function listReviews(req, res, next) {
   try {
     const page = Number(req.query.page || 1);
@@ -189,4 +237,4 @@ async function listReviews(req, res, next) {
   }
 }
 
-module.exports = { createReview, getReviewById, listReviews, uploadReviewEvidenceImage };
+module.exports = { createReview, getReviewById, listReviews, uploadReviewEvidenceImage, saveReviewAnchorTx };
