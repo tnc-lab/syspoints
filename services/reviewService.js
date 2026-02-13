@@ -1,6 +1,12 @@
 const crypto = require('crypto');
 const { withTransaction, query } = require('../db');
-const { createReview, findById, listReviews: listReviewsRepo } = require('../repositories/reviewRepository');
+const {
+  createReview,
+  findById,
+  findCoreById,
+  upsertReviewAnchor,
+  listReviews: listReviewsRepo,
+} = require('../repositories/reviewRepository');
 const { findById: findUserById } = require('../repositories/userRepository');
 const { createEvidenceBatch } = require('../repositories/reviewEvidenceRepository');
 const { establishmentService } = require('./establishmentService');
@@ -45,6 +51,11 @@ function formatReviewResponse(reviewRow, evidenceImages) {
     created_at: reviewRow.created_at,
     points_awarded: reviewRow.points_awarded,
     review_hash: reviewRow.review_hash,
+    tx_hash: reviewRow.tx_hash || '',
+    chain_id: reviewRow.chain_id != null ? Number(reviewRow.chain_id) : null,
+    block_number: reviewRow.block_number != null ? Number(reviewRow.block_number) : null,
+    block_timestamp: reviewRow.block_timestamp || null,
+    tx_recorded_at: reviewRow.tx_recorded_at || null,
   };
 }
 
@@ -180,10 +191,50 @@ async function listReviewsService({ page, pageSize, establishmentId, sort }) {
   };
 }
 
+async function saveReviewAnchorTxService({
+  reviewId,
+  requesterId,
+  requesterRole,
+  txHash,
+  chainId = null,
+  blockNumber = null,
+  blockTimestamp = null,
+}) {
+  const reviewCore = await findCoreById({ query }, reviewId);
+  if (!reviewCore) {
+    throw new ApiError(404, 'review not found');
+  }
+
+  const isOwner = reviewCore.user_id === requesterId;
+  const isAdmin = requesterRole === 'admin';
+  if (!isOwner && !isAdmin) {
+    throw new ApiError(403, 'not allowed to persist transaction metadata for this review');
+  }
+
+  try {
+    return await upsertReviewAnchor({ query }, {
+      review_id: reviewId,
+      tx_hash: txHash,
+      chain_id: chainId,
+      block_number: blockNumber,
+      block_timestamp: blockTimestamp,
+    });
+  } catch (err) {
+    if (err.code === '23505') {
+      throw new ApiError(409, 'tx_hash already linked to another review');
+    }
+    if (err.code === '23514' || err.code === '22P02') {
+      throw new ApiError(400, 'invalid transaction metadata');
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   reviewService: {
     createReview: createReviewService,
     getReviewById: getReviewByIdService,
     listReviews: listReviewsService,
+    saveReviewAnchorTx: saveReviewAnchorTxService,
   },
 };
