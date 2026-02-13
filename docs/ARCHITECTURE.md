@@ -446,3 +446,79 @@ Validation notes:
 
 - `POST /reviews` should support `Idempotency-Key` header. If the same key is reused for the same user, the backend returns the original `201` response.
 - `review_hash` is unique and should raise `409` on duplicates.
+
+## C4 Container Diagram
+
+```mermaid
+  flowchart LR
+
+    %% CLIENT
+    user[User / Admin Client]
+    frontend["Frontend Web<br/>(Vite + React)"]
+
+    %% CORE BACKEND
+    api["Backend API<br/>(Node.js REST)"]
+    auth["Wallet Auth Service<br/>(Nonce + JWT)"]
+    reviews[Review Service]
+    points["Points Engine<br/>(configurable)"]
+    admin[Admin Config Service]
+    upload[Image Upload Service]
+    sysworker[Syscoin Async Worker]
+    hashsvc[Hash Generator]
+
+    %% DATABASE
+    db[(PostgreSQL)]
+
+    %% BLOCKCHAIN
+    chain["Syscoin Blockchain<br/>(Hash storage only)"]
+
+    %% USER FLOW
+    user --> frontend
+    frontend --> api
+
+    %% AUTH
+    api --> auth
+    auth --> db
+
+    %% REVIEWS
+    api --> reviews
+    reviews --> db
+    reviews --> hashsvc
+
+    %% HASH + BLOCKCHAIN
+    hashsvc --> db
+    reviews --> sysworker
+    sysworker --> chain
+    sysworker --> db
+
+    %% POINTS
+    reviews --> points
+    points --> db
+    api --> admin
+    admin --> db
+
+    %% UPLOADS
+    api --> upload
+    upload --> db
+
+    %% READ FLOW
+    db --> api
+    api --> frontend
+
+    %% PRINCIPLES
+    subgraph Principles
+        p1[Backend = Source of Truth]
+        p2[Reviews Immutable]
+        p3[Blockchain stores only hash]
+        p4[Points computed off-chain]
+        p5[Async blockchain writes]
+        p6[Admin configurable rules]
+    end
+
+    api -.enforces.-> p1
+    reviews -.ensures.-> p2
+    chain -.stores.-> p3
+    points -.logic.-> p4
+    sysworker -.async.-> p5
+    admin -.controls.-> p6
+```

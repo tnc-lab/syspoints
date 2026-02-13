@@ -79,3 +79,68 @@ Single-row configuration used to compute points.
 | default_user_avatar_url | TEXT | optional | no | Default avatar URL for users without avatar |
 | created_at | TIMESTAMPTZ | yes | no | Automatic |
 | updated_at | TIMESTAMPTZ | yes | no | Automatic |
+
+## Entity-Relationship (ER) Diagrams
+
+```mermaid
+    erDiagram
+
+    USER {
+        uuid id PK
+        text wallet_address UK
+        text email UK
+        text name
+        text avatar_url
+        text role
+        timestamptz created_at
+    }
+
+    ESTABLISHMENT {
+        uuid id PK
+        text name
+        text category
+        text image_url
+        timestamptz created_at
+    }
+
+    REVIEW {
+        uuid id PK
+        uuid user_id FK
+        uuid establishment_id FK
+        text title
+        text description
+        int stars
+        numeric price
+        text purchase_url
+        text[] tags
+        timestamptz created_at
+        int points_awarded
+        text review_hash UK
+    }
+
+    REVIEW_EVIDENCE {
+        uuid id PK
+        uuid review_id FK
+        text image_url
+        timestamptz created_at
+    }
+
+    POINTS_CONFIG {
+        uuid id PK
+        int image_points_yes
+        int image_points_no
+        int description_points_gt_200
+        int description_points_lte_200
+        int stars_points_yes
+        int stars_points_no
+        int price_points_lt_100
+        int price_points_gte_100
+        text default_user_avatar_url
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    USER ||--o{ REVIEW : creates
+    ESTABLISHMENT ||--o{ REVIEW : receives
+    REVIEW ||--o{ REVIEW_EVIDENCE : has
+```

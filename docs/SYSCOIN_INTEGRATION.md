@@ -119,3 +119,58 @@ Hashing method
 - RPC timeout.
 - Invalid or missing `PRIVATE_KEY`.
 - Insufficient funds for gas.
+
+## Sequence Diagram
+
+```mermaid
+  sequenceDiagram
+    autonumber
+
+    participant Client as Authenticated Client
+    participant API as Backend API
+    participant DB as PostgreSQL
+    participant Hash as Hash Service (keccak256)
+    participant Worker as Async Job / Worker
+    participant RPC as EVM RPC Provider
+    participant Contract as Syspoints Smart Contract
+    participant Chain as Syscoin Network
+
+    %% REQUEST
+    Client->>API: POST /syscoin/review-hash (review_id)
+
+    API->>DB: Fetch review + user + establishment
+    DB-->>API: Review data
+
+    alt Review not found
+        API-->>Client: 404 error
+    else Valid review
+        API->>Hash: Build metadata JSON
+        Hash->>Hash: keccak256(review_id,user_id,establishment_id,timestamp,price)
+        Hash-->>API: review_hash
+
+        API->>DB: Persist review_hash if missing
+        API->>Worker: Enqueue async blockchain job
+
+        API-->>Client: 202 Accepted + tx preview payload
+    end
+
+    %% ASYNC BLOCKCHAIN FLOW
+    Worker->>DB: Load review + hash
+    Worker->>RPC: Connect using RPC_URL + CHAIN_ID
+    Worker->>Worker: Create signer using PRIVATE_KEY
+
+    Worker->>Hash: keccak256(establishment_id)
+    Hash-->>Worker: establishment_id_hash
+
+    Worker->>Contract: anchorReview(user, review_hash, establishment_id_hash)
+    Contract->>Chain: Submit transaction
+    Chain-->>Contract: tx mined (block timestamp)
+
+    Contract-->>Worker: tx_hash + ReviewAnchored event
+    Worker->>DB: Store tx_hash + block timestamp
+    Worker->>DB: Mark anchored=true
+
+    Note right of Chain: Only hash stored on-chain\nFull review stays off-chain
+    Note right of API: Backend remains source of truth
+    Note right of Worker: Blockchain writes are asynchronous
+```
