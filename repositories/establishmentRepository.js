@@ -1,7 +1,11 @@
 const { query } = require('../db');
 
 async function listEstablishments() {
-  const result = await query('SELECT id, name, category, image_url, created_at FROM establishments ORDER BY created_at DESC');
+  const result = await query(
+    `SELECT id, name, category, image_url, address, country, state_region, district, latitude, longitude, created_at
+     FROM establishments
+     ORDER BY created_at DESC`
+  );
   return result.rows;
 }
 
@@ -12,6 +16,12 @@ async function listTopReviewedEstablishments({ limit, offset }) {
       e.name,
       e.category,
       e.image_url,
+      e.address,
+      e.country,
+      e.state_region,
+      e.district,
+      e.latitude,
+      e.longitude,
       COUNT(r.id)::int AS review_count,
       ROUND(AVG(r.stars)::numeric, 2)::float8 AS avg_stars
      FROM establishments e
@@ -37,30 +47,98 @@ async function listTopReviewedEstablishments({ limit, offset }) {
   };
 }
 
-async function createEstablishment({ id, name, category, image_url }) {
+async function createEstablishment({
+  id,
+  name,
+  category,
+  image_url,
+  address,
+  country,
+  state_region,
+  district,
+  latitude,
+  longitude,
+}) {
   const result = await query(
-    `INSERT INTO establishments (id, name, category, image_url)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id, name, category, image_url, created_at`,
-    [id, name, category, image_url || null]
+    `INSERT INTO establishments (id, name, category, image_url, address, country, state_region, district, latitude, longitude)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+     RETURNING id, name, category, image_url, address, country, state_region, district, latitude, longitude, created_at`,
+    [
+      id,
+      name,
+      category,
+      image_url || null,
+      address || null,
+      country || null,
+      state_region || null,
+      district || null,
+      latitude ?? null,
+      longitude ?? null,
+    ]
   );
   return result.rows[0];
 }
 
 async function findById(id) {
-  const result = await query('SELECT id, name, category, image_url, created_at FROM establishments WHERE id = $1', [id]);
+  const result = await query(
+    `SELECT id, name, category, image_url, address, country, state_region, district, latitude, longitude, created_at
+     FROM establishments
+     WHERE id = $1`,
+    [id]
+  );
   return result.rows[0] || null;
 }
 
-async function updateEstablishment({ id, name, category, image_url }) {
+async function findByNameAndAddress({ name, address }) {
+  const result = await query(
+    `SELECT id, name, category, image_url, address, country, state_region, district, latitude, longitude, created_at
+     FROM establishments
+     WHERE lower(trim(name)) = lower(trim($1))
+       AND lower(trim(address)) = lower(trim($2))
+     LIMIT 1`,
+    [name, address]
+  );
+
+  return result.rows[0] || null;
+}
+
+async function updateEstablishment({
+  id,
+  name,
+  category,
+  image_url,
+  address,
+  country,
+  state_region,
+  district,
+  latitude,
+  longitude,
+}) {
   const result = await query(
     `UPDATE establishments
      SET name = $2,
          category = $3,
-         image_url = $4
+         image_url = $4,
+         address = $5,
+         country = $6,
+         state_region = $7,
+         district = $8,
+         latitude = $9,
+         longitude = $10
      WHERE id = $1
-     RETURNING id, name, category, image_url, created_at`,
-    [id, name, category, image_url || null]
+     RETURNING id, name, category, image_url, address, country, state_region, district, latitude, longitude, created_at`,
+    [
+      id,
+      name,
+      category,
+      image_url || null,
+      address || null,
+      country || null,
+      state_region || null,
+      district || null,
+      latitude ?? null,
+      longitude ?? null,
+    ]
   );
   return result.rows[0] || null;
 }
@@ -70,5 +148,6 @@ module.exports = {
   listTopReviewedEstablishments,
   createEstablishment,
   findById,
+  findByNameAndAddress,
   updateEstablishment,
 };

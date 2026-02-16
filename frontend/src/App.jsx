@@ -13,6 +13,27 @@ const ESTABLISHMENT_IMAGE_MAX_DIMENSION = 960
 const MAX_REVIEW_EVIDENCE_IMAGES = 3
 const MIN_REVIEW_EVIDENCE_IMAGES = 1
 const MAX_REVIEW_TITLE_WORDS = 12
+const HOME_REVIEW_DESCRIPTION_MAX_CHARS = 200
+const MAP_SEARCH_RESULT_LIMIT = 6
+const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
+const OSM_EMBED_BASE_URL = "https://www.openstreetmap.org/export/embed.html"
+const DEFAULT_MAP_VIEW = {
+  latitude: -12.0464,
+  longitude: -77.0428,
+}
+const ESTABLISHMENT_CATEGORIES = [
+  "Restaurant",
+  "Cafe",
+  "Retail",
+  "Supermarket",
+  "Pharmacy",
+  "Hotel",
+  "Gym",
+  "Salon",
+  "Electronics",
+  "Services",
+]
+const REVIEW_SUCCESS_MESSAGE = "Review submitted and anchored on-chain."
 const WALLET_OPTION_CONFIG = {
   metamask: {
     key: "metamask",
@@ -69,12 +90,51 @@ const normalizeAddress = (value) => {
   }
 }
 
+const truncateWithEllipsis = (value, maxChars) => {
+  const text = String(value || "")
+  if (text.length <= maxChars) return text
+  return `${text.slice(0, maxChars)}...`
+}
+
 const getWalletErrorMessage = (error, fallback = "Wallet connection failed.") => {
   if (error?.code === 4001) return "Request rejected in wallet."
   if (error?.code === -32002) return "Wallet request already pending. Open your wallet extension."
   if (error?.code === 4100) return "Wallet access not authorized. Approve this dApp in your wallet."
   if (error?.message === "No wallet account available.") return "No account found in this wallet. Create or import an account first."
   return error?.message || fallback
+}
+
+const toNumberOrNull = (value) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+const buildEmbeddedMapUrl = ({ latitude, longitude }) => {
+  const lat = toNumberOrNull(latitude)
+  const lon = toNumberOrNull(longitude)
+  if (lat == null || lon == null) return ""
+  const delta = 0.01
+  const bbox = [lon - delta, lat - delta, lon + delta, lat + delta].join(",")
+  return `${OSM_EMBED_BASE_URL}?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat}%2C${lon}`
+}
+
+const buildLocalPlaceholderImage = ({ title = "Establishment" } = {}) => {
+  const safeTitle = String(title || "Establishment").replace(/[<>&"]/g, "")
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640">
+      <defs>
+        <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#fde68a"/>
+          <stop offset="100%" stop-color="#93c5fd"/>
+        </linearGradient>
+      </defs>
+      <rect width="960" height="640" fill="url(#g)"/>
+      <rect x="72" y="80" width="816" height="480" rx="24" fill="rgba(255,255,255,0.65)"/>
+      <text x="480" y="306" text-anchor="middle" fill="#111827" font-size="42" font-family="sans-serif" font-weight="700">${safeTitle}</text>
+      <text x="480" y="354" text-anchor="middle" fill="#374151" font-size="24" font-family="sans-serif">Suggested image</text>
+    </svg>
+  `
+  return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`
 }
 
 const getChainProofErrorMessage = (error) => {
@@ -167,6 +227,28 @@ function App() {
     tags: "",
     evidence_images: [],
   })
+  const [locationSearch, setLocationSearch] = useState({
+    query: "",
+    loading: false,
+    error: "",
+    results: [],
+    selected: null,
+    resolvedId: "",
+    resolving: false,
+    geolocating: false,
+    mapCenter: { ...DEFAULT_MAP_VIEW },
+  })
+  const [imageSuggestions, setImageSuggestions] = useState({
+    loading: false,
+    error: "",
+    items: [],
+    selected: "",
+  })
+  const [imageSourceMode, setImageSourceMode] = useState("existing")
+  const [uploadingSelectedEstablishmentImage, setUploadingSelectedEstablishmentImage] = useState(false)
+  const [establishmentCategory, setEstablishmentCategory] = useState("")
+  const [reviewWizardStep, setReviewWizardStep] = useState(1)
+  const [reviewWizardStatus, setReviewWizardStatus] = useState("")
   const [uploadingReviewEvidence, setUploadingReviewEvidence] = useState(false)
 
   const [reviews, setReviews] = useState([])
@@ -207,10 +289,30 @@ function App() {
   })
   const [loadingPointsConfig, setLoadingPointsConfig] = useState(false)
   const [uploadingDefaultAvatar, setUploadingDefaultAvatar] = useState(false)
-  const [newEstablishment, setNewEstablishment] = useState({ name: "", category: "", image_url: "" })
+  const [newEstablishment, setNewEstablishment] = useState({
+    name: "",
+    category: "",
+    image_url: "",
+    address: "",
+    country: "",
+    state_region: "",
+    district: "",
+    latitude: "",
+    longitude: "",
+  })
   const [uploadingEstablishmentImage, setUploadingEstablishmentImage] = useState(false)
   const [editingEstablishmentId, setEditingEstablishmentId] = useState("")
-  const [editingEstablishment, setEditingEstablishment] = useState({ name: "", category: "", image_url: "" })
+  const [editingEstablishment, setEditingEstablishment] = useState({
+    name: "",
+    category: "",
+    image_url: "",
+    address: "",
+    country: "",
+    state_region: "",
+    district: "",
+    latitude: "",
+    longitude: "",
+  })
   const [savingEstablishmentEdition, setSavingEstablishmentEdition] = useState(false)
 
   const getWalletProvider = () => {
@@ -341,6 +443,47 @@ function App() {
     establishments.forEach((est) => map.set(est.id, est))
     return map
   }, [establishments])
+  const selectedEstablishment = useMemo(() => {
+    if (locationSearch.selected) return locationSearch.selected
+    return establishmentsById.get(reviewForm.establishment_id) || null
+  }, [establishmentsById, reviewForm.establishment_id, locationSearch.selected])
+
+  const handleCategorySelection = (nextCategory) => {
+    const normalizedCategory = String(nextCategory || "").trim()
+    if (normalizedCategory === String(establishmentCategory || "").trim()) return
+
+    setEstablishmentCategory(normalizedCategory)
+    setReviewForm((prev) => ({
+      ...prev,
+      establishment_id: "",
+      title: "",
+      description: "",
+      stars: 0,
+      price: "",
+      purchase_url: "",
+      tags: "",
+      evidence_images: [],
+    }))
+    setLocationSearch({
+      query: "",
+      loading: false,
+      error: "",
+      results: [],
+      selected: null,
+      resolvedId: "",
+      resolving: false,
+      geolocating: false,
+      mapCenter: { ...DEFAULT_MAP_VIEW },
+    })
+    setImageSuggestions({
+      loading: false,
+      error: "",
+      items: [],
+      selected: "",
+    })
+    setImageSourceMode("existing")
+    setReviewWizardStep(normalizedCategory ? 2 : 1)
+  }
 
   const apiFetch = async (path, options = {}) => {
     const headers = {
@@ -599,6 +742,49 @@ function App() {
 
   const countWords = (text) =>
     String(text || "").trim().split(/\s+/).filter(Boolean).length
+  const hasSelectedCategory = Boolean(String(establishmentCategory || "").trim())
+  const hasConfirmedEstablishment = Boolean(String(reviewForm.establishment_id || "").trim())
+  const reviewTitleWordCount = countWords(reviewForm.title)
+  const hasValidReviewTitle =
+    Boolean(String(reviewForm.title || "").trim()) && reviewTitleWordCount <= MAX_REVIEW_TITLE_WORDS
+
+  const goToNextWizardStep = (currentStep, nextStep) => {
+    if (currentStep === 1) {
+      if (!hasSelectedCategory) {
+        setReviewWizardStatus("Debes seleccionar el rubro antes de continuar.")
+        return
+      }
+    }
+
+    if (currentStep === 2) {
+      if (!locationSearch.selected) {
+        setReviewWizardStatus("Debes seleccionar un establecimiento para continuar.")
+        return
+      }
+      if (!String(locationSearch.selected?.name || "").trim()) {
+        setReviewWizardStatus("Debes ingresar el nombre del establecimiento antes de continuar.")
+        return
+      }
+      if (!hasConfirmedEstablishment) {
+        setReviewWizardStatus("Debes confirmar y guardar el establecimiento seleccionado antes de continuar.")
+        return
+      }
+    }
+
+    if (currentStep === 3) {
+      if (!String(reviewForm.title || "").trim()) {
+        setReviewWizardStatus("Debes ingresar el título de la reseña antes de continuar.")
+        return
+      }
+      if (reviewTitleWordCount > MAX_REVIEW_TITLE_WORDS) {
+        setReviewWizardStatus(`El título debe tener máximo ${MAX_REVIEW_TITLE_WORDS} palabras.`)
+        return
+      }
+    }
+
+    setReviewWizardStatus("")
+    setReviewWizardStep(nextStep)
+  }
 
   const createClientIdempotencyKey = () => {
     if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -795,11 +981,6 @@ function App() {
   }
 
   const uploadReviewEvidenceImage = async (file) => {
-    if (!token) {
-      setAuthStatus("Sign in with your wallet before uploading evidence.")
-      return
-    }
-
     if (reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES) {
       setAuthStatus(`You can upload up to ${MAX_REVIEW_EVIDENCE_IMAGES} evidence images.`)
       return
@@ -861,6 +1042,54 @@ function App() {
       setAdminStatus(error?.message || "No se pudo subir la imagen.")
     } finally {
       setUploadingEstablishmentImage(false)
+    }
+  }
+
+  const uploadSelectedEstablishmentImage = async (file) => {
+    if (!token) {
+      setLocationSearch((prev) => ({ ...prev, error: "Inicia sesión para subir imagen del establecimiento." }))
+      return
+    }
+    if (!locationSearch.selected) {
+      setLocationSearch((prev) => ({ ...prev, error: "Selecciona un establecimiento primero." }))
+      return
+    }
+
+    setUploadingSelectedEstablishmentImage(true)
+    setLocationSearch((prev) => ({ ...prev, error: "" }))
+    try {
+      const prepared = await prepareEstablishmentImage(file)
+      const uploaded = await apiFetch("/establishments/upload-image", {
+        method: "POST",
+        body: JSON.stringify({
+          file_name: prepared.fileName,
+          mime_type: prepared.mimeType,
+          data_url: prepared.dataUrl,
+        }),
+      })
+
+      const uploadedUrl = String(uploaded?.image_url || "").trim()
+      if (!uploadedUrl) {
+        throw new Error("No se recibió URL de imagen.")
+      }
+
+      setImageSuggestions((prev) => ({
+        ...prev,
+        items: [uploadedUrl, ...prev.items.filter((url) => url !== uploadedUrl)],
+        selected: uploadedUrl,
+        error: "",
+      }))
+      setImageSourceMode("upload")
+      setLocationSearch((prev) => ({
+        ...prev,
+        selected: prev.selected
+          ? { ...prev.selected, image_url: uploadedUrl }
+          : prev.selected,
+      }))
+    } catch (error) {
+      setLocationSearch((prev) => ({ ...prev, error: error?.message || "No se pudo subir imagen." }))
+    } finally {
+      setUploadingSelectedEstablishmentImage(false)
     }
   }
 
@@ -998,9 +1227,25 @@ function App() {
           name: newEstablishment.name,
           category: newEstablishment.category,
           image_url: newEstablishment.image_url || null,
+          address: newEstablishment.address || null,
+          country: newEstablishment.country || null,
+          state_region: newEstablishment.state_region || null,
+          district: newEstablishment.district || null,
+          latitude: newEstablishment.latitude ? Number(newEstablishment.latitude) : null,
+          longitude: newEstablishment.longitude ? Number(newEstablishment.longitude) : null,
         }),
       })
-      setNewEstablishment({ name: "", category: "", image_url: "" })
+      setNewEstablishment({
+        name: "",
+        category: "",
+        image_url: "",
+        address: "",
+        country: "",
+        state_region: "",
+        district: "",
+        latitude: "",
+        longitude: "",
+      })
       setAdminStatus("Establishment creado correctamente.")
       fetchEstablishments()
     } catch (error) {
@@ -1014,13 +1259,29 @@ function App() {
       name: establishment.name || "",
       category: establishment.category || "",
       image_url: establishment.image_url || "",
+      address: establishment.address || "",
+      country: establishment.country || "",
+      state_region: establishment.state_region || "",
+      district: establishment.district || "",
+      latitude: establishment.latitude ?? "",
+      longitude: establishment.longitude ?? "",
     })
     setAdminStatus("")
   }
 
   const cancelEditingEstablishment = () => {
     setEditingEstablishmentId("")
-    setEditingEstablishment({ name: "", category: "", image_url: "" })
+    setEditingEstablishment({
+      name: "",
+      category: "",
+      image_url: "",
+      address: "",
+      country: "",
+      state_region: "",
+      district: "",
+      latitude: "",
+      longitude: "",
+    })
   }
 
   const saveEstablishmentEdition = async () => {
@@ -1039,6 +1300,12 @@ function App() {
           name: editingEstablishment.name,
           category: editingEstablishment.category,
           image_url: editingEstablishment.image_url || null,
+          address: editingEstablishment.address || null,
+          country: editingEstablishment.country || null,
+          state_region: editingEstablishment.state_region || null,
+          district: editingEstablishment.district || null,
+          latitude: editingEstablishment.latitude ? Number(editingEstablishment.latitude) : null,
+          longitude: editingEstablishment.longitude ? Number(editingEstablishment.longitude) : null,
         }),
       })
       if (!updated?.id) {
@@ -1163,6 +1430,279 @@ function App() {
       setEstablishments(result || [])
     } catch {
       setEstablishments([])
+    }
+  }
+
+  const searchLocationsByAddress = async () => {
+    const query = locationSearch.query.trim()
+    if (!query) {
+      setLocationSearch((prev) => ({
+        ...prev,
+        error: "Ingresa una dirección para buscar.",
+        results: [],
+      }))
+      return
+    }
+
+    setLocationSearch((prev) => ({ ...prev, loading: true, error: "", results: [] }))
+    try {
+      const response = await apiFetch("/establishments/search-location", {
+        method: "POST",
+        body: JSON.stringify({
+          query: [establishmentCategory, query].filter(Boolean).join(" "),
+          limit: MAP_SEARCH_RESULT_LIMIT,
+        }),
+      })
+      const normalized = Array.isArray(response?.data)
+        ? response.data
+            .slice(0, MAP_SEARCH_RESULT_LIMIT)
+            .map((item) => {
+              const lat = toNumberOrNull(item?.latitude)
+              const lon = toNumberOrNull(item?.longitude)
+              if (lat == null || lon == null) return null
+              const suggestedImages = Array.isArray(item?.suggested_images)
+                ? item.suggested_images.filter((url) => /^https?:\/\//i.test(String(url || "")))
+                : []
+              return {
+                id: String(item?.id || `${lat}-${lon}`),
+                name: String(item?.name || "Establishment").trim(),
+                address: String(item?.address || "").trim(),
+                country: String(item?.country || "").trim(),
+                state_region: String(item?.state_region || "").trim(),
+                district: String(item?.district || "").trim(),
+                latitude: lat,
+                longitude: lon,
+                category: String(establishmentCategory || "Services"),
+                image_url: String(suggestedImages[0] || "").trim(),
+                suggested_images: suggestedImages,
+                source: "search",
+              }
+            })
+            .filter(Boolean)
+        : []
+
+      setLocationSearch((prev) => ({
+        ...prev,
+        loading: false,
+        results: normalized,
+        mapCenter: normalized[0]
+          ? { latitude: normalized[0].latitude, longitude: normalized[0].longitude }
+          : prev.mapCenter,
+        error: normalized.length ? "" : "No encontramos resultados para esa dirección.",
+      }))
+    } catch (error) {
+      setLocationSearch((prev) => ({
+        ...prev,
+        loading: false,
+        error: error?.message || "No se pudo consultar el mapa.",
+      }))
+    }
+  }
+
+  const loadEstablishmentImageSuggestions = async (candidate) => {
+    if (!candidate) return
+
+    setImageSuggestions({ loading: true, error: "", items: [], selected: "" })
+    const localPlaceholder = buildLocalPlaceholderImage({ title: candidate.name })
+    const existingDbImages = [...new Set(
+      establishments
+        .map((item) => String(item?.image_url || "").trim())
+        .filter((url) => /^https?:\/\//i.test(url))
+    )]
+
+    try {
+      const query = [candidate.category || establishmentCategory, candidate.name, candidate.address].filter(Boolean).join(" ").trim()
+      const response = await apiFetch("/establishments/suggest-images", {
+        method: "POST",
+        body: JSON.stringify({
+          query,
+          category: candidate.category || establishmentCategory || "Map Place",
+        }),
+      })
+      const items = Array.isArray(response?.data)
+        ? response.data
+            .map((item) => String(item?.image_url || "").trim())
+            .filter((url) => /^https?:\/\//i.test(url))
+            .slice(0, 40)
+        : []
+
+      const normalizedItems = [...new Set([...existingDbImages, ...items, localPlaceholder].filter(Boolean))]
+      setImageSuggestions({
+        loading: false,
+        error: normalizedItems.length ? "" : "No se pudieron cargar imágenes sugeridas.",
+        items: normalizedItems,
+        selected: normalizedItems[0] || "",
+      })
+    } catch (error) {
+      const fallbackItems = [...new Set([...existingDbImages, localPlaceholder].filter(Boolean))]
+      setImageSuggestions({
+        loading: false,
+        error: fallbackItems.length ? "" : (error?.message || "No se pudieron cargar imágenes sugeridas."),
+        items: fallbackItems,
+        selected: fallbackItems[0] || "",
+      })
+    }
+  }
+
+  const pickLocationCandidate = async (candidate) => {
+    if (!candidate) return
+    const normalizedCandidate = {
+      ...candidate,
+      category: candidate.category || establishmentCategory || "Map Place",
+      source: candidate.source || "search",
+    }
+    setReviewForm((prev) => ({ ...prev, establishment_id: "" }))
+    setLocationSearch((prev) => ({
+      ...prev,
+      selected: normalizedCandidate,
+      resolvedId: "",
+      mapCenter: { latitude: normalizedCandidate.latitude, longitude: normalizedCandidate.longitude },
+      error: "",
+    }))
+    await loadEstablishmentImageSuggestions(normalizedCandidate)
+  }
+
+  const locateCurrentPosition = async () => {
+    if (!navigator?.geolocation) {
+      setLocationSearch((prev) => ({ ...prev, error: "Tu navegador no soporta geolocalización." }))
+      return
+    }
+
+    setLocationSearch((prev) => ({ ...prev, geolocating: true, error: "" }))
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 12000,
+          maximumAge: 0,
+        })
+      })
+
+      const latitude = toNumberOrNull(position?.coords?.latitude)
+      const longitude = toNumberOrNull(position?.coords?.longitude)
+      if (latitude == null || longitude == null) {
+        throw new Error("No se pudo leer tu ubicación actual.")
+      }
+
+      const params = new URLSearchParams({
+        format: "jsonv2",
+        lat: String(latitude),
+        lon: String(longitude),
+        addressdetails: "1",
+      })
+      const response = await fetch(`${NOMINATIM_REVERSE_URL}?${params.toString()}`, {
+        headers: { "Accept-Language": "es,en" },
+      })
+      if (!response.ok) {
+        throw new Error("No se pudo resolver la dirección desde OSM.")
+      }
+      const data = await response.json()
+      const addr = data?.address || {}
+      const normalized = [{
+        id: String(data?.place_id || `gps-${latitude}-${longitude}`),
+        name: String(
+          data?.name ||
+            addr?.amenity ||
+            addr?.shop ||
+            addr?.building ||
+            data?.display_name?.split(",")?.[0] ||
+            "Establishment"
+        ).trim(),
+        address: String(data?.display_name || "").trim() || `Lat ${latitude}, Lng ${longitude}`,
+        country: String(addr?.country || "").trim(),
+        state_region: String(addr?.state || addr?.region || addr?.county || "").trim(),
+        district: String(addr?.city_district || addr?.suburb || addr?.city || addr?.town || "").trim(),
+        latitude,
+        longitude,
+        category: String(establishmentCategory || "Services"),
+        image_url: "",
+        suggested_images: [],
+        source: "geolocation",
+      }]
+
+      setLocationSearch((prev) => ({
+        ...prev,
+        results: normalized,
+        selected: normalized[0] || null,
+        resolvedId: "",
+        geolocating: false,
+        mapCenter: normalized[0]
+          ? { latitude: normalized[0].latitude, longitude: normalized[0].longitude }
+          : prev.mapCenter,
+        error: normalized.length ? "" : "No encontramos resultados cercanos.",
+      }))
+
+      if (normalized[0]) {
+        await loadEstablishmentImageSuggestions(normalized[0])
+      }
+    } catch (error) {
+      setLocationSearch((prev) => ({
+        ...prev,
+        geolocating: false,
+        error: error?.message || "No se pudo ubicar tu posición actual.",
+      }))
+    }
+  }
+
+  const resolveAndSelectEstablishment = async () => {
+    const candidate = locationSearch.selected
+    if (!candidate) return
+
+    setLocationSearch((prev) => ({ ...prev, resolving: true, error: "" }))
+    try {
+      const resolved = await apiFetch("/establishments/resolve", {
+        method: "POST",
+        body: JSON.stringify({
+          name: candidate.name,
+          address: candidate.address,
+          country: candidate.country || null,
+          state_region: candidate.state_region || null,
+          district: candidate.district || null,
+          latitude: candidate.latitude,
+          longitude: candidate.longitude,
+          category: candidate.category || establishmentCategory || "Map Place",
+          image_url: imageSuggestions.selected || candidate.image_url || null,
+        }),
+      })
+
+      setReviewForm((prev) => ({
+        ...prev,
+        establishment_id: resolved.id,
+      }))
+      setLocationSearch((prev) => ({
+        ...prev,
+        loading: false,
+        selected: {
+          id: resolved.id,
+          name: resolved.name || candidate.name,
+          address: resolved.address || candidate.address,
+          country: resolved.country || candidate.country || "",
+          state_region: resolved.state_region || candidate.state_region || "",
+          district: resolved.district || candidate.district || "",
+          latitude: toNumberOrNull(resolved.latitude) ?? candidate.latitude,
+          longitude: toNumberOrNull(resolved.longitude) ?? candidate.longitude,
+          image_url: resolved.image_url || imageSuggestions.selected || candidate.image_url || "",
+          category: resolved.category || candidate.category,
+          source: candidate.source || "search",
+        },
+        resolving: false,
+        resolvedId: candidate.id,
+        error: "",
+      }))
+      setEstablishments((prev) => {
+        const exists = prev.some((item) => item.id === resolved.id)
+        if (exists) {
+          return prev.map((item) => (item.id === resolved.id ? { ...item, ...resolved } : item))
+        }
+        return [resolved, ...prev]
+      })
+      setReviewWizardStep(3)
+    } catch (error) {
+      setLocationSearch((prev) => ({
+        ...prev,
+        resolving: false,
+        error: error?.message || "No se pudo seleccionar este establecimiento.",
+      }))
     }
   }
 
@@ -1330,7 +1870,6 @@ function App() {
     }
 
     setSubmittingReview(true)
-
     if (!token) {
       setAuthStatus("Sign in with your wallet before posting a review.")
       setSubmittingReview(false)
@@ -1354,6 +1893,16 @@ function App() {
           ...prev,
           step: "error",
           message: "Missing user id in token. Sign in again.",
+        }))
+        return
+      }
+
+      if (!reviewForm.establishment_id) {
+        setAuthStatus("Select an establishment before submitting your review.")
+        setReviewTx((prev) => ({
+          ...prev,
+          step: "error",
+          message: "Select an establishment before submitting your review.",
         }))
         return
       }
@@ -1399,7 +1948,7 @@ function App() {
         description: reviewForm.description,
         stars: Number(reviewForm.stars),
         price: Number(reviewForm.price),
-        purchase_url: reviewForm.purchase_url,
+        purchase_url: String(reviewForm.purchase_url || "").trim() || null,
         tags,
         evidence_images: reviewForm.evidence_images,
       }
@@ -1519,8 +2068,27 @@ function App() {
         tags: "",
         evidence_images: [],
       })
+      setLocationSearch({
+        query: "",
+        loading: false,
+        error: "",
+        results: [],
+        selected: null,
+        resolvedId: "",
+        resolving: false,
+        geolocating: false,
+        mapCenter: { ...DEFAULT_MAP_VIEW },
+      })
+      setImageSuggestions({
+        loading: false,
+        error: "",
+        items: [],
+        selected: "",
+      })
+      setImageSourceMode("existing")
+      setEstablishmentCategory("")
       setReviewSubmissionState({ key: "", signature: "" })
-      setAuthStatus("Review submitted and anchored on-chain.")
+      setAuthStatus(REVIEW_SUCCESS_MESSAGE)
       fetchReviews(1)
       fetchLeaderboard(leaderMeta.page)
       setActivePage("reviews")
@@ -1555,6 +2123,42 @@ function App() {
         setProfileStatus(error?.message || "No se pudieron cargar tus datos.")
       })
   }, [activePage, token])
+
+  useEffect(() => {
+    if (activePage !== "review") return
+    if (authStatus === REVIEW_SUCCESS_MESSAGE) {
+      setAuthStatus("")
+    }
+  }, [activePage, authStatus])
+
+  useEffect(() => {
+    if (activePage !== "review") return
+    if (!hasSelectedCategory) {
+      if (reviewWizardStep !== 1) setReviewWizardStep(1)
+      return
+    }
+    if (!hasConfirmedEstablishment) {
+      if (reviewWizardStep > 2) setReviewWizardStep(2)
+      return
+    }
+    if (!hasValidReviewTitle) {
+      if (reviewWizardStep > 3) setReviewWizardStep(3)
+      return
+    }
+  }, [
+    activePage,
+    hasSelectedCategory,
+    hasConfirmedEstablishment,
+    hasValidReviewTitle,
+    reviewWizardStep,
+  ])
+
+  useEffect(() => {
+    if (activePage !== "review") return
+    if (reviewWizardStatus) {
+      setReviewWizardStatus("")
+    }
+  }, [activePage, reviewWizardStep])
 
   useEffect(() => {
     if (activePage !== "review-detail" || !selectedReview) return
@@ -1844,7 +2448,9 @@ function App() {
                                 </div>
                                 <div>
                                   <div className="review-title">{review.title || "Untitled review"}</div>
-                                  <div className="review-sub">{review.description}</div>
+                                  <div className="review-sub">
+                                    {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
+                                  </div>
                                   {Array.isArray(review.tags) && review.tags.length > 0 && (
                                     <div className="review-tags" style={{ marginTop: "8px" }}>
                                       {review.tags.map((tag) => {
@@ -1903,7 +2509,9 @@ function App() {
                               <div className="review-sub" style={{ fontWeight: 600, color: "var(--primary)", fontSize: "0.85rem", marginBottom: "6px" }}>
                                 {establishmentsById.get(review.establishment_id)?.name || "Unknown Place"}
                               </div>
-                              <div className="review-sub card-desc">{review.description}</div>
+                              <div className="review-sub card-desc">
+                                {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
+                              </div>
                               
                               <div className="card-footer">
                                 {Array.isArray(review.tags) && review.tags.length > 0 ? (
@@ -2033,149 +2641,549 @@ function App() {
                 <span className="pill">Review</span>
               </div>          
               <div className="input-group">
-                <div>
-                  <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                    Título breve y claro: resume la idea principal de tu reseña (máx {MAX_REVIEW_TITLE_WORDS} palabras).
-                  </div>
-                  <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
-                    {countWords(reviewForm.title)}/{MAX_REVIEW_TITLE_WORDS} palabras
-                  </div>
-                  <input
-                    className="input"
-                    placeholder="Review title"
-                    value={reviewForm.title}
-                    onChange={(event) =>
-                      setReviewForm({ ...reviewForm, title: event.target.value })
-                    }
-                  />
-                </div>    
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Selecciona el establecimiento donde ocurrió tu experiencia. Si no aparece en la lista, puedes crearlo desde la sección Admin.
-                </div>
-                <select
-                  className="input"
-                  value={reviewForm.establishment_id}
-                  onChange={(event) =>
-                    setReviewForm({ ...reviewForm, establishment_id: event.target.value })
-                  }
-                >
-                  <option value="">Select establishment</option>
-                  {establishments.map((est) => (
-                    <option key={est.id} value={est.id}>
-                      {est.name}
-                    </option>
-                  ))}
-                </select>
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Describe tu experiencia con detalles: qué compraste o lo que sucedió, cómo te atendieron y la fecha aproximada. Evita incluir datos personales.
-                </div>
-                <textarea
-                  className="input"
-                  rows={4}
-                  placeholder="Describe your experience"
-                  value={reviewForm.description}
-                  onChange={(event) =>
-                    setReviewForm({ ...reviewForm, description: event.target.value })
-                  }
-                />
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Selecciona entre 1 (muy mala) y 5 (excelente). Las estrellas permiten a otros usuarios ver rápidamente tu valoración.
-                </div>
-                <div className="rating-picker" aria-label="Review stars">
-                  {[1, 2, 3, 4, 5].map((starValue) => (
-                    <button
-                      key={`review-star-${starValue}`}
-                      type="button"
-                      className={`rating-star ${Number(reviewForm.stars) >= starValue ? "active" : ""}`}
-                      onClick={() => setReviewForm({ ...reviewForm, stars: starValue })}
-                      aria-label={`Set ${starValue} stars`}
+                {reviewWizardStep === 1 && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 1: Rubro</strong>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#6b7280" }}>
+                      Elige el rubro del establecimiento.
+                    </div>
+                    <select
+                      className="input"
+                      value={establishmentCategory}
+                      onChange={(event) => handleCategorySelection(event.target.value)}
+                      disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
                     >
-                      ★
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="ghost-button rating-clear"
-                    onClick={() => setReviewForm({ ...reviewForm, stars: 0 })}
-                  >
-                    Clear
-                  </button>
-                </div>
-                <div style={{ fontSize: "14px", color: "#374151", marginTop: "6px" }}>
-                  Stars: <strong>{reviewForm.stars}</strong>/5
-                </div>
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Opcional: indica el precio en soles (ej. 39.90). Solo valores numéricos para ayudar a comparar calidad/precio.
-                </div>
-                <input
-                  className="input"
-                  type="number"
-                  placeholder="Price (PEN)"
-                  value={reviewForm.price}
-                  onChange={(event) =>
-                    setReviewForm({ ...reviewForm, price: event.target.value })
-                  }
-                />
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Opcional: pega un enlace a la compra, ticket o producto para validar la reseña.
-                </div>
-                <input
-                  className="input"
-                  placeholder="Purchase URL"
-                  value={reviewForm.purchase_url}
-                  onChange={(event) =>
-                    setReviewForm({ ...reviewForm, purchase_url: event.target.value })
-                  }
-                />
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Usa tags separadas por comas para describir aspectos clave (ej.: delivery, atención, calidad). Ayuda a filtrar y buscar reseñas.
-                </div>
-                <input
-                  className="input"
-                  placeholder="Tags (comma separated)"
-                  value={reviewForm.tags}
-                  onChange={(event) =>
-                    setReviewForm({ ...reviewForm, tags: event.target.value })
-                  }
-                />
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                  Formato permitido: JPG, PNG, WEBP. Recomendado ≤ 2MB por imagen. Sube fotos claras del producto o recibo. Mínimo {MIN_REVIEW_EVIDENCE_IMAGES}, máximo {MAX_REVIEW_EVIDENCE_IMAGES} imágenes.
-                </div>
-                <FileUpload
-                  accept="image/jpeg,image/png,image/webp"
-                  onFile={(file) => uploadReviewEvidenceImage(file)}
-                  disabled={uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
-                />
-                {uploadingReviewEvidence && <p>Subiendo evidencia...</p>}
-                <div style={{ display: "grid", gap: "8px" }}>
-                  <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                    Evidencias: {reviewForm.evidence_images.length}/{MAX_REVIEW_EVIDENCE_IMAGES} (mínimo {MIN_REVIEW_EVIDENCE_IMAGES})
+                      <option value="">Selecciona un rubro</option>
+                      {ESTABLISHMENT_CATEGORIES.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                      <button type="button" className="primary-button" onClick={() => goToNextWizardStep(1, 2)}>
+                        Siguiente
+                      </button>
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    {reviewForm.evidence_images.map((imageUrl, index) => (
-                      <div key={`${imageUrl}-${index}`} style={{ display: "grid", gap: "6px" }}>
-                        <img
-                          src={imageUrl}
-                          alt={`Evidence ${index + 1}`}
-                          style={{ width: "120px", height: "84px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                )}
+
+                {hasSelectedCategory && reviewWizardStep === 2 && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 2: Establecimiento</strong>
+                    </div>
+                    <>
+                        <div className="map-search-box">
+                          <div style={{ fontSize: "12px", color: "#6b7280" }}>
+                            Busca por dirección o nombre y selecciona un resultado:
+                          </div>
+                          <div className="map-search-row">
+                            <input
+                              className="input"
+                              placeholder="Ej: Saga Falabella Miraflores o Av. Larco 345, Miraflores"
+                              value={locationSearch.query}
+                              onChange={(event) =>
+                                setLocationSearch((prev) => ({ ...prev, query: event.target.value, error: "" }))
+                              }
+                            />
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={searchLocationsByAddress}
+                              disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
+                            >
+                              {locationSearch.loading ? "Buscando..." : "Buscar en mapa"}
+                            </button>
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              onClick={locateCurrentPosition}
+                              disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
+                            >
+                              {locationSearch.geolocating ? "Ubicando..." : "Usar mi ubicación"}
+                            </button>
+                          </div>
+                          {locationSearch.error && (
+                            <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                              {locationSearch.error}
+                            </div>
+                          )}
+                          {locationSearch.results.length > 0 && (
+                            <div className="map-results-list">
+                              {locationSearch.results.map((result) => (
+                                <button
+                                  type="button"
+                                  key={result.id}
+                                  className={`map-result-item ${
+                                    locationSearch.selected?.id === result.id || locationSearch.resolvedId === result.id ? "active" : ""
+                                  }`}
+                                  onClick={() => pickLocationCandidate(result)}
+                                  disabled={locationSearch.loading || locationSearch.resolving}
+                                >
+                                  <strong>{result.name}</strong>
+                                  <span>{result.address}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {selectedEstablishment && (
+                          <div style={{ display: "grid", gap: "10px" }}>
+                            <div className="selected-establishment-status">
+                              Establecimiento seleccionado
+                            </div>
+                            <div style={{ display: "grid", gap: "4px" }}>
+                              {locationSearch.selected?.source === "geolocation" ? (
+                                <div style={{ display: "grid", gap: "6px" }}>
+                                  <label style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                    Nombre del establecimiento (editable):
+                                  </label>
+                                  <input
+                                    className="input"
+                                    placeholder="Ingresa el nombre del establecimiento"
+                                    value={locationSearch.selected?.name || ""}
+                                    onChange={(event) => {
+                                      const nextName = event.target.value
+                                      setLocationSearch((prev) => ({
+                                        ...prev,
+                                        selected: prev.selected ? { ...prev.selected, name: nextName } : prev.selected,
+                                        error: "",
+                                      }))
+                                    }}
+                                    disabled={locationSearch.resolving}
+                                  />
+                                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                    El nombre se guardará al confirmar el establecimiento.
+                                  </span>
+                                </div>
+                              ) : (
+                                <strong>{selectedEstablishment.name}</strong>
+                              )}
+                              <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
+                                {selectedEstablishment.address || "Dirección no disponible"}
+                              </span>
+                              <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
+                                {[
+                                  selectedEstablishment.district,
+                                  selectedEstablishment.state_region,
+                                  selectedEstablishment.country,
+                                ].filter(Boolean).join(" · ") || "Ubicación administrativa no disponible"}
+                              </span>
+                              <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
+                                Rubro: {selectedEstablishment.category || establishmentCategory}
+                              </span>
+                            </div>
+                            <div className="selected-establishment-media">
+                              {selectedEstablishment.image_url && (
+                                <img
+                                  src={selectedEstablishment.image_url}
+                                  alt={selectedEstablishment.name || "Establishment"}
+                                />
+                              )}
+                              {toNumberOrNull(selectedEstablishment.latitude) != null &&
+                                toNumberOrNull(selectedEstablishment.longitude) != null && (
+                                <iframe
+                                  title="Selected establishment map"
+                                  src={buildEmbeddedMapUrl({
+                                    latitude: toNumberOrNull(selectedEstablishment.latitude),
+                                    longitude: toNumberOrNull(selectedEstablishment.longitude),
+                                  })}
+                                  loading="lazy"
+                                  referrerPolicy="no-referrer-when-downgrade"
+                                />
+                              )}
+                            </div>
+                            <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                              Imagen del establecimiento: elige una existente o sube una.
+                            </div>
+                            <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+                              <label style={{ display: "inline-flex", gap: "6px", alignItems: "center", fontSize: "12px", color: "var(--muted)" }}>
+                                <input
+                                  type="radio"
+                                  name="establishment-image-mode"
+                                  checked={imageSourceMode === "existing"}
+                                  onChange={() => {
+                                    setImageSourceMode("existing")
+                                    if (!imageSuggestions.selected && imageSuggestions.items[0]) {
+                                      setImageSuggestions((prev) => ({ ...prev, selected: prev.items[0] || "" }))
+                                    }
+                                  }}
+                                  disabled={locationSearch.resolving}
+                                />
+                                Usar imagen existente (DB)
+                              </label>
+                              <label style={{ display: "inline-flex", gap: "6px", alignItems: "center", fontSize: "12px", color: "var(--muted)" }}>
+                                <input
+                                  type="radio"
+                                  name="establishment-image-mode"
+                                  checked={imageSourceMode === "upload"}
+                                  onChange={() => {
+                                    setImageSourceMode("upload")
+                                    setImageSuggestions((prev) => ({ ...prev, selected: "" }))
+                                  }}
+                                  disabled={locationSearch.resolving}
+                                />
+                                Subir imagen
+                              </label>
+                            </div>
+                            {imageSourceMode === "upload" && (
+                              <div>
+                                <FileUpload
+                                  accept="image/jpeg,image/png,image/webp"
+                                  onFile={(file) => uploadSelectedEstablishmentImage(file)}
+                                  disabled={uploadingSelectedEstablishmentImage || locationSearch.resolving}
+                                />
+                                {uploadingSelectedEstablishmentImage && (
+                                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>Subiendo imagen...</div>
+                                )}
+                              </div>
+                            )}
+                            {imageSuggestions.loading && <div style={{ fontSize: "12px", color: "var(--muted)" }}>Buscando imágenes sugeridas...</div>}
+                            {imageSuggestions.error && <div style={{ fontSize: "12px", color: "#b91c1c" }}>{imageSuggestions.error}</div>}
+                            {imageSourceMode === "existing" && imageSuggestions.items.length > 0 && (
+                              <div className="suggested-images-grid">
+                                {imageSuggestions.items.map((imageUrl) => (
+                                  <button
+                                    type="button"
+                                    key={imageUrl}
+                                    className={`suggested-image-option ${imageSuggestions.selected === imageUrl ? "active" : ""}`}
+                                    onClick={() => setImageSuggestions((prev) => ({ ...prev, selected: imageUrl }))}
+                                    disabled={locationSearch.resolving}
+                                  >
+                                    <img src={imageUrl} alt="Suggested establishment" />
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={() => {
+                                  setReviewForm((prev) => ({
+                                    ...prev,
+                                    establishment_id: "",
+                                    title: "",
+                                    description: "",
+                                    stars: 0,
+                                    price: "",
+                                    purchase_url: "",
+                                    tags: "",
+                                    evidence_images: [],
+                                  }))
+                                  setLocationSearch((prev) => ({ ...prev, selected: null, resolvedId: "", error: "" }))
+                                }}
+                                disabled={locationSearch.resolving}
+                              >
+                                Cambiar establecimiento
+                              </button>
+                              <button
+                                type="button"
+                                className="primary-button"
+                                onClick={resolveAndSelectEstablishment}
+                                disabled={
+                                  !locationSearch.selected ||
+                                  !String(locationSearch.selected?.name || "").trim() ||
+                                  locationSearch.resolving ||
+                                  (imageSourceMode === "upload" && !imageSuggestions.selected)
+                                }
+                              >
+                                {locationSearch.resolving ? "Guardando establecimiento..." : "Confirmar establecimiento"}
+                              </button>
+                            </div>
+                            {reviewForm.establishment_id && (
+                              <div style={{ fontSize: "12px", color: "#166534" }}>
+                                Establecimiento confirmado para esta reseña.
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {!selectedEstablishment && (
+                          <div className="selected-establishment-card">
+                            <iframe
+                              title="Location map"
+                              src={buildEmbeddedMapUrl({
+                                latitude: locationSearch.mapCenter.latitude,
+                                longitude: locationSearch.mapCenter.longitude,
+                              })}
+                              loading="lazy"
+                              referrerPolicy="no-referrer-when-downgrade"
+                            />
+                          </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(1)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(2, 3)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
+
+                {hasConfirmedEstablishment && reviewWizardStep === 3 && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 3: Título</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Título breve y claro (máx {MAX_REVIEW_TITLE_WORDS} palabras).
+                        </div>
+                        <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
+                          {reviewTitleWordCount}/{MAX_REVIEW_TITLE_WORDS} palabras
+                        </div>
+                        <input
+                          className="input"
+                          placeholder="Review title"
+                          value={reviewForm.title}
+                          onChange={(event) =>
+                            setReviewForm({ ...reviewForm, title: event.target.value })
+                          }
                         />
-                        <button className="ghost-button" onClick={() => removeReviewEvidenceImage(index)}>
-                          Quitar
-                        </button>
-                      </div>
-                    ))}
+                        {!hasValidReviewTitle && String(reviewForm.title || "").trim() && (
+                          <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                            El título debe tener máximo {MAX_REVIEW_TITLE_WORDS} palabras.
+                          </div>
+                        )}
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(2)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(3, 4)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
                   </div>
-                </div>
+                )}
+
+                {reviewWizardStep === 4 && hasValidReviewTitle && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 4: Descripción</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Describe tu experiencia con detalles: qué compraste o lo que sucedió, cómo te atendieron y la fecha aproximada. Evita incluir datos personales.
+                        </div>
+                        <textarea
+                          className="input"
+                          rows={4}
+                          placeholder="Describe your experience"
+                          value={reviewForm.description}
+                          onChange={(event) =>
+                            setReviewForm({ ...reviewForm, description: event.target.value })
+                          }
+                        />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(3)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(5)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
+
+                {reviewWizardStep === 5 && hasValidReviewTitle && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 5: Valoración</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Selecciona entre 1 (muy mala) y 5 (excelente).
+                        </div>
+                        <div className="rating-picker" aria-label="Review stars">
+                          {[1, 2, 3, 4, 5].map((starValue) => (
+                            <button
+                              key={`review-star-${starValue}`}
+                              type="button"
+                              className={`rating-star ${Number(reviewForm.stars) >= starValue ? "active" : ""}`}
+                              onClick={() => setReviewForm({ ...reviewForm, stars: starValue })}
+                              aria-label={`Set ${starValue} stars`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            className="ghost-button rating-clear"
+                            onClick={() => setReviewForm({ ...reviewForm, stars: 0 })}
+                          >
+                            Clear
+                          </button>
+                        </div>
+                        <div style={{ fontSize: "14px", color: "#374151", marginTop: "6px" }}>
+                          Stars: <strong>{reviewForm.stars}</strong>/5
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(4)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(6)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
+
+                {reviewWizardStep === 6 && hasValidReviewTitle && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 6: Precio</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Opcional: indica el precio en soles (ej. 39.90).
+                        </div>
+                        <input
+                          className="input"
+                          type="number"
+                          placeholder="Price (PEN)"
+                          value={reviewForm.price}
+                          onChange={(event) =>
+                            setReviewForm({ ...reviewForm, price: event.target.value })
+                          }
+                        />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(5)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(7)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
+
+                {reviewWizardStep === 7 && hasValidReviewTitle && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 7: Purchase URL</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Opcional: pega un enlace de compra, ticket o producto.
+                        </div>
+                        <input
+                          className="input"
+                          placeholder="Purchase URL"
+                          value={reviewForm.purchase_url}
+                          onChange={(event) =>
+                            setReviewForm({ ...reviewForm, purchase_url: event.target.value })
+                          }
+                        />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(6)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(8)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
+
+                {reviewWizardStep === 8 && hasValidReviewTitle && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 8: Tags</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Usa tags separadas por comas (ej.: delivery, atención, calidad).
+                        </div>
+                        <input
+                          className="input"
+                          placeholder="Tags (comma separated)"
+                          value={reviewForm.tags}
+                          onChange={(event) =>
+                            setReviewForm({ ...reviewForm, tags: event.target.value })
+                          }
+                        />
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(7)}>
+                            Atrás
+                          </button>
+                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(9)}>
+                            Siguiente
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
+
+                {reviewWizardStep === 9 && hasValidReviewTitle && (
+                  <div className="selected-establishment-card">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+                      <strong>Paso 9: Subir validación</strong>
+                    </div>
+                    <>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                          Formato permitido: JPG, PNG, WEBP. Mínimo {MIN_REVIEW_EVIDENCE_IMAGES}, máximo {MAX_REVIEW_EVIDENCE_IMAGES} imágenes.
+                        </div>
+                        <FileUpload
+                          accept="image/jpeg,image/png,image/webp"
+                          onFile={(file) => uploadReviewEvidenceImage(file)}
+                          disabled={uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
+                        />
+                        {uploadingReviewEvidence && <p>Subiendo evidencia...</p>}
+                        <div style={{ display: "grid", gap: "8px" }}>
+                          <div style={{ fontSize: "12px", color: "#6b7280" }}>
+                            Evidencias: {reviewForm.evidence_images.length}/{MAX_REVIEW_EVIDENCE_IMAGES} (mínimo {MIN_REVIEW_EVIDENCE_IMAGES})
+                          </div>
+                          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                            {reviewForm.evidence_images.map((imageUrl, index) => (
+                              <div key={`${imageUrl}-${index}`} style={{ display: "grid", gap: "6px" }}>
+                                <img
+                                  src={imageUrl}
+                                  alt={`Evidence ${index + 1}`}
+                                  style={{ width: "120px", height: "84px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                                />
+                                <button className="ghost-button" onClick={() => removeReviewEvidenceImage(index)}>
+                                  Quitar
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(8)}>
+                            Atrás
+                          </button>
+                        </div>
+                    </>
+                  </div>
+                )}
               </div>
-              <button
-                className="primary-button"
-                onClick={submitReview}
-                disabled={submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"}
-              >
-                {submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"
-                  ? "Submitting..."
-                  : "Submit review"}
-              </button>
+              {reviewWizardStatus && (
+                <div style={{ marginTop: "10px", color: "#b91c1c", fontSize: "13px" }}>
+                  {reviewWizardStatus}
+                </div>
+              )}
+              {hasConfirmedEstablishment && hasValidReviewTitle && reviewWizardStep === 9 && (
+                <button
+                  className="primary-button"
+                  onClick={submitReview}
+                  disabled={submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"}
+                >
+                  {submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"
+                    ? "Submitting..."
+                    : "Submit review"}
+                </button>
+              )}
               {authStatus && (
                 <div style={{ marginTop: "12px", color: "#e85151" }}>
                   {authStatus}
@@ -2383,6 +3391,62 @@ function App() {
                     setNewEstablishment({ ...newEstablishment, category: event.target.value })
                   }
                 />
+                <input
+                  className="input"
+                  placeholder="Address (optional)"
+                  value={newEstablishment.address}
+                  onChange={(event) =>
+                    setNewEstablishment({ ...newEstablishment, address: event.target.value })
+                  }
+                />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+                  <input
+                    className="input"
+                    placeholder="Country"
+                    value={newEstablishment.country}
+                    onChange={(event) =>
+                      setNewEstablishment({ ...newEstablishment, country: event.target.value })
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="State / Region"
+                    value={newEstablishment.state_region}
+                    onChange={(event) =>
+                      setNewEstablishment({ ...newEstablishment, state_region: event.target.value })
+                    }
+                  />
+                  <input
+                    className="input"
+                    placeholder="District / City"
+                    value={newEstablishment.district}
+                    onChange={(event) =>
+                      setNewEstablishment({ ...newEstablishment, district: event.target.value })
+                    }
+                  />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.000001"
+                    placeholder="Latitude"
+                    value={newEstablishment.latitude}
+                    onChange={(event) =>
+                      setNewEstablishment({ ...newEstablishment, latitude: event.target.value })
+                    }
+                  />
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.000001"
+                    placeholder="Longitude"
+                    value={newEstablishment.longitude}
+                    onChange={(event) =>
+                      setNewEstablishment({ ...newEstablishment, longitude: event.target.value })
+                    }
+                  />
+                </div>
                 <FileUpload
                   accept="image/jpeg,image/png,image/webp"
                   onFile={(file) => uploadEstablishmentImage(file)}
@@ -2439,6 +3503,10 @@ function App() {
                       <div className="establishment-main">
                         <strong>{est.name || "Sin nombre"}</strong>
                         <span>{est.category || "Sin categoría"}</span>
+                        {est.address && <span>{est.address}</span>}
+                        {(est.district || est.state_region || est.country) && (
+                          <span>{[est.district, est.state_region, est.country].filter(Boolean).join(" · ")}</span>
+                        )}
                       </div>
                       <div className="establishment-actions">
                         {editingEstablishmentId === est.id ? (
@@ -2459,6 +3527,62 @@ function App() {
                               setEditingEstablishment({ ...editingEstablishment, category: event.target.value })
                             }
                           />
+                          <input
+                            className="input"
+                            placeholder="Address (optional)"
+                            value={editingEstablishment.address}
+                            onChange={(event) =>
+                              setEditingEstablishment({ ...editingEstablishment, address: event.target.value })
+                            }
+                          />
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "10px" }}>
+                            <input
+                              className="input"
+                              placeholder="Country"
+                              value={editingEstablishment.country}
+                              onChange={(event) =>
+                                setEditingEstablishment({ ...editingEstablishment, country: event.target.value })
+                              }
+                            />
+                            <input
+                              className="input"
+                              placeholder="State / Region"
+                              value={editingEstablishment.state_region}
+                              onChange={(event) =>
+                                setEditingEstablishment({ ...editingEstablishment, state_region: event.target.value })
+                              }
+                            />
+                            <input
+                              className="input"
+                              placeholder="District / City"
+                              value={editingEstablishment.district}
+                              onChange={(event) =>
+                                setEditingEstablishment({ ...editingEstablishment, district: event.target.value })
+                              }
+                            />
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                            <input
+                              className="input"
+                              type="number"
+                              step="0.000001"
+                              placeholder="Latitude"
+                              value={editingEstablishment.latitude}
+                              onChange={(event) =>
+                                setEditingEstablishment({ ...editingEstablishment, latitude: event.target.value })
+                              }
+                            />
+                            <input
+                              className="input"
+                              type="number"
+                              step="0.000001"
+                              placeholder="Longitude"
+                              value={editingEstablishment.longitude}
+                              onChange={(event) =>
+                                setEditingEstablishment({ ...editingEstablishment, longitude: event.target.value })
+                              }
+                            />
+                          </div>
                           <FileUpload
                             accept="image/jpeg,image/png,image/webp"
                             onFile={(file) => uploadEditingEstablishmentImage(file)}

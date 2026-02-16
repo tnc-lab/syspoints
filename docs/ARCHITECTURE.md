@@ -108,7 +108,7 @@ Require `Authorization: Bearer <token>`:
 - `GET /users` (admin)
 - `POST /establishments` (admin)
 - `PUT /establishments/:id` (admin)
-- `POST /establishments/upload-image` (admin)
+- `POST /establishments/upload-image` (authenticated user)
 - `POST /reviews`
 - `POST /reviews/upload-evidence`
 - `POST /syscoin/review-hash`
@@ -117,9 +117,10 @@ Require `Authorization: Bearer <token>`:
 - `POST /admin/points-config/default-avatar` (admin)
 
 Role-based access
-- `admin` users can create establishments, list users, and update points config.
+- `admin` users can create/edit establishments manually, list users, and update points config.
 - `user` and `admin` can create reviews.
 - Reviews list is public.
+- Establishments can also be auto-resolved from OSM location search flow (`POST /establishments/resolve`).
 
 ### Users
 
@@ -174,9 +175,80 @@ Role-based access
   "name": "Store",
   "category": "restaurant",
   "image_url": "https://.../uploads/establishments/file.jpg",
+  "address": "Av. Larco 345, Miraflores, Lima, Peru",
+  "country": "Peru",
+  "state_region": "Lima",
+  "district": "Miraflores",
+  "latitude": -12.123,
+  "longitude": -77.03,
   "created_at": "2026-02-09T12:00:00Z"
 }
 ]
+```
+
+`POST /establishments/search-location`
+- Purpose: search candidate establishments via OSM (Nominatim) by name/address text.
+- Request body:
+```json
+{
+  "query": "Saga Falabella Av. Larco 345, Miraflores",
+  "limit": 6
+}
+```
+- Response `200`:
+```json
+{
+  "data": [
+    {
+      "id": "123456789",
+      "name": "Saga Falabella",
+      "address": "Av. Larco 345, Miraflores, Lima, Peru",
+      "country": "Peru",
+      "state_region": "Lima",
+      "district": "Miraflores",
+      "latitude": -12.123,
+      "longitude": -77.03
+    }
+  ]
+}
+```
+
+`POST /establishments/resolve`
+- Purpose: create or reuse an establishment by `name + address` (deduplicated by both values).
+- Request body:
+```json
+{
+  "name": "Saga Falabella",
+  "category": "Retail",
+  "address": "Av. Larco 345, Miraflores, Lima, Peru",
+  "country": "Peru",
+  "state_region": "Lima",
+  "district": "Miraflores",
+  "latitude": -12.123,
+  "longitude": -77.03,
+  "image_url": "https://.../uploads/establishments/file.jpg"
+}
+```
+- Response `200`: Establishment entity
+- Errors:
+  - `400` validation error
+
+`POST /establishments/suggest-images`
+- Purpose: list reusable establishment images already stored in DB.
+- Request body:
+```json
+{
+  "query": "optional-filter-string"
+}
+```
+- Response `200`:
+```json
+{
+  "data": [
+    { "image_url": "https://.../uploads/establishments/file-1.jpg" },
+    { "image_url": "https://.../uploads/establishments/file-2.jpg" }
+  ]
+}
 ```
 
 `POST /establishments`
@@ -185,7 +257,13 @@ Role-based access
 {
   "name": "Store",
   "category": "restaurant",
-  "image_url": "https://.../uploads/establishments/file.jpg"
+  "image_url": "https://.../uploads/establishments/file.jpg",
+  "address": "Av. Larco 345, Miraflores, Lima, Peru",
+  "country": "Peru",
+  "state_region": "Lima",
+  "district": "Miraflores",
+  "latitude": -12.123,
+  "longitude": -77.03
 }
 ```
 - Response `201`:
@@ -195,6 +273,12 @@ Role-based access
   "name": "Store",
   "category": "restaurant",
   "image_url": "https://.../uploads/establishments/file.jpg",
+  "address": "Av. Larco 345, Miraflores, Lima, Peru",
+  "country": "Peru",
+  "state_region": "Lima",
+  "district": "Miraflores",
+  "latitude": -12.123,
+  "longitude": -77.03,
   "created_at": "2026-02-09T12:00:00Z"
 }
 ```
@@ -207,7 +291,13 @@ Role-based access
 {
   "name": "Store",
   "category": "restaurant",
-  "image_url": "https://.../uploads/establishments/file.jpg"
+  "image_url": "https://.../uploads/establishments/file.jpg",
+  "address": "Av. Larco 345, Miraflores, Lima, Peru",
+  "country": "Peru",
+  "state_region": "Lima",
+  "district": "Miraflores",
+  "latitude": -12.123,
+  "longitude": -77.03
 }
 ```
 - Response `200`:
@@ -217,6 +307,12 @@ Role-based access
   "name": "Store",
   "category": "restaurant",
   "image_url": "https://.../uploads/establishments/file.jpg",
+  "address": "Av. Larco 345, Miraflores, Lima, Peru",
+  "country": "Peru",
+  "state_region": "Lima",
+  "district": "Miraflores",
+  "latitude": -12.123,
+  "longitude": -77.03,
   "created_at": "2026-02-09T12:00:00Z"
 }
 ```
@@ -225,6 +321,7 @@ Role-based access
   - `404` establishment not found
 
 `POST /establishments/upload-image`
+- Auth: any authenticated user
 - Request body:
 ```json
 {
@@ -286,6 +383,7 @@ Role-based access
 Validation notes:
 - `title` is required and must contain at most 12 words.
 - `stars` must be an integer between 0 and 5.
+- `purchase_url` is optional; when provided, it must be a valid URL.
 - `evidence_images` must contain between 1 and 3 valid URLs.
 
 `POST /reviews/upload-evidence`

@@ -58,8 +58,11 @@ async function createReview(req, res, next) {
       throw new ApiError(400, 'price must be greater than 0');
     }
 
-    if (!isNonEmptyString(purchase_url) || !isValidUrl(purchase_url)) {
-      throw new ApiError(400, 'purchase_url must be a valid URL');
+    const normalizedPurchaseUrl = purchase_url == null || String(purchase_url).trim() === ''
+      ? null
+      : String(purchase_url).trim();
+    if (normalizedPurchaseUrl != null && !isValidUrl(normalizedPurchaseUrl)) {
+      throw new ApiError(400, 'purchase_url must be a valid URL when provided');
     }
 
     if (!Array.isArray(tags) || tags.length === 0) {
@@ -84,7 +87,7 @@ async function createReview(req, res, next) {
       description,
       stars,
       price,
-      purchase_url,
+      purchase_url: normalizedPurchaseUrl,
       tags,
       evidence_images,
       idempotencyKey,
