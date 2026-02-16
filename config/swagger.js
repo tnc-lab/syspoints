@@ -319,6 +319,171 @@ swaggerSpec.paths = {
       },
     },
   },
+  '/establishments/top-reviewed': {
+    get: {
+      summary: 'List top reviewed establishments',
+      parameters: [
+        { name: 'page', in: 'query', schema: { type: 'integer', default: 1 } },
+        { name: 'page_size', in: 'query', schema: { type: 'integer', default: 5 } },
+      ],
+      responses: {
+        200: {
+          description: 'OK',
+          content: {
+            'application/json': {
+              examples: {
+                topReviewed: {
+                  value: {
+                    data: [
+                      {
+                        id: 'uuid',
+                        name: 'Store',
+                        category: 'Retail',
+                        image_url: 'https://example.com/store.jpg',
+                        review_count: 12,
+                        avg_stars: 4.5,
+                      },
+                    ],
+                    meta: { page: 1, page_size: 5, total: 1 },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  '/establishments/search-location': {
+    post: {
+      summary: 'Search establishments using OSM (Nominatim)',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            examples: {
+              byAddress: {
+                value: {
+                  query: 'Saga Falabella Av. Larco 345, Miraflores',
+                  limit: 6,
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'OK',
+          content: {
+            'application/json': {
+              examples: {
+                places: {
+                  value: {
+                    data: [
+                      {
+                        id: '123456789',
+                        name: 'Store',
+                        address: 'Av. Larco 345, Miraflores, Lima',
+                        country: 'Peru',
+                        state_region: 'Lima',
+                        district: 'Miraflores',
+                        latitude: -12.123,
+                        longitude: -77.03,
+                      },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Validation error',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+        502: {
+          description: 'OSM unavailable',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+      },
+    },
+  },
+  '/establishments/resolve': {
+    post: {
+      summary: 'Create or resolve establishment by location',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            examples: {
+              resolve: {
+                value: {
+                  name: 'Store',
+                  address: 'Av. Larco 345, Miraflores, Lima',
+                  country: 'Peru',
+                  state_region: 'Lima',
+                  district: 'Miraflores',
+                  latitude: -12.123,
+                  longitude: -77.03,
+                  category: 'Retail',
+                  image_url: 'https://example.com/image.jpg',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: { description: 'Resolved' },
+        400: {
+          description: 'Validation error',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+      },
+    },
+  },
+  '/establishments/suggest-images': {
+    post: {
+      summary: 'Suggest establishment images from existing establishments in DB',
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            examples: {
+              suggest: {
+                value: {
+                  query: 'Retail store Av. Larco 345 Miraflores',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          description: 'OK',
+          content: {
+            'application/json': {
+              examples: {
+                images: {
+                  value: {
+                    data: [
+                      { image_url: 'https://example.com/stored-image.jpg' },
+                    ],
+                  },
+                },
+              },
+            },
+          },
+        },
+        400: {
+          description: 'Validation error',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+      },
+    },
+  },
   '/reviews': {
     get: {
       summary: 'List reviews',
