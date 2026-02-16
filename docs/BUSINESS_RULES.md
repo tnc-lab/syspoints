@@ -11,17 +11,19 @@
   - role (`user` or `admin`)
 
 ## Establishments
-- Reviews can only be created for predefined establishments
+- Reviews can only be created for establishments persisted in DB
 - Examples:
   - stores
   - restaurants
   - services
+- Establishments are resolved from OSM location search by `name + address` to avoid duplicates.
+- Same establishment name in different places is treated as different records using full address and geo fields.
 
 ## Reviews
 A review:
 - Cannot be edited or deleted
 - Must include:
-  - Choose listed store, restaurant or service
+  - Choose or resolve a store/restaurant/service from location search
   - Title (short, standard title)
   - Images about product or service
   - Description (minimum length enforced)
@@ -36,7 +38,7 @@ Validation rules
 - `title` is required and must contain at most 12 words.
 - `stars` must be between 0 and 5.
 - `price` must be greater than 0 (PEN).
-- `purchase_url` must be a valid URL.
+- `purchase_url` is optional; if provided, it must be a valid URL.
 - `tags` must contain at least one value.
 - Evidence images must be between 1 and 3.
 
@@ -65,14 +67,15 @@ Points are awarded per review:
 
 ## Administration
 - Point values must be configurable by an administrator
-- Products must be added by an administrator
+- Establishments can be added by admin panel or resolved automatically from location search flow
 - Each user have a dashboard
 
 Admin rules
-- Only `admin` users can create establishments.
+- Only `admin` users can create/update establishments manually via admin endpoints.
 - Only `admin` users can update points configuration.
 - Only `admin` users can list all users.
 - Reviews list is public (frontend homepage).
+- Any authenticated user can upload an establishment image via `POST /establishments/upload-image`.
 
 Authentication
 - Login is wallet-only via signature.

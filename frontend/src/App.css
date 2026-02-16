@@ -148,6 +148,111 @@
   margin-bottom: 14px;
 }
 
+.map-search-box {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: #fcfcfd;
+}
+
+.map-search-row {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.map-results-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.map-result-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  text-align: left;
+  padding: 10px;
+  display: grid;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.map-result-item span {
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+
+.map-result-item.active {
+  border-color: var(--accent);
+  background: #eff6ff;
+}
+
+.selected-establishment-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: #fff;
+  display: grid;
+  gap: 10px;
+}
+
+.selected-establishment-status {
+  display: inline-block;
+  width: fit-content;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #166534;
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  padding: 4px 10px;
+}
+
+.selected-establishment-media {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.selected-establishment-media img,
+.selected-establishment-media iframe {
+  width: 100%;
+  min-height: 180px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  object-fit: cover;
+}
+
+.suggested-images-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+}
+
+.suggested-image-option {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 0;
+  background: #fff;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.suggested-image-option img {
+  width: 100%;
+  height: 98px;
+  object-fit: cover;
+  display: block;
+}
+
+.suggested-image-option.active {
+  border-color: var(--primary);
+}
+
 .establishments-list {
   display: grid;
   gap: 10px;
@@ -687,6 +792,10 @@
 }
 
 @media (max-width: 680px) {
+  .map-search-row {
+    grid-template-columns: 1fr;
+  }
+
   .table-header {
     display: none;
   }

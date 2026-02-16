@@ -11,7 +11,7 @@ const { authenticate } = require('../middlewares/auth');
 const reviewsRouter = express.Router();
 
 reviewsRouter.post('/', authenticate, createReview);
-reviewsRouter.post('/upload-evidence', authenticate, uploadReviewEvidenceImage);
+reviewsRouter.post('/upload-evidence', uploadReviewEvidenceImage);
 reviewsRouter.post('/:id/anchor-tx', authenticate, saveReviewAnchorTx);
 reviewsRouter.get('/', listReviews);
 reviewsRouter.get('/:id', getReviewById);

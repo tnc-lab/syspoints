@@ -11,6 +11,15 @@ const ALLOWED_IMAGE_MIME = {
 };
 const MAX_IMAGE_BYTES = 1_500_000;
 
+function parseNullableCoordinate(value, { field, min, max }) {
+  if (value == null || value === '') return null;
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < min || numeric > max) {
+    throw new ApiError(400, `${field} must be a number between ${min} and ${max}`);
+  }
+  return numeric;
+}
+
 async function listEstablishments(req, res, next) {
   try {
     const establishments = await establishmentService.listEstablishments();
@@ -42,7 +51,7 @@ async function listTopReviewedEstablishments(req, res, next) {
 
 async function createEstablishment(req, res, next) {
   try {
-    const { name, category, image_url } = req.body || {};
+    const { name, category, image_url, address, country, state_region, district, latitude, longitude } = req.body || {};
 
     if (!isNonEmptyString(name)) {
       throw new ApiError(400, 'name is required');
@@ -56,7 +65,33 @@ async function createEstablishment(req, res, next) {
       throw new ApiError(400, 'image_url must be a valid URL');
     }
 
-    const establishment = await establishmentService.createEstablishment({ name, category, image_url });
+    if (address != null && !isNonEmptyString(address)) {
+      throw new ApiError(400, 'address must be a non-empty string when provided');
+    }
+    if (country != null && !isNonEmptyString(country)) {
+      throw new ApiError(400, 'country must be a non-empty string when provided');
+    }
+    if (state_region != null && !isNonEmptyString(state_region)) {
+      throw new ApiError(400, 'state_region must be a non-empty string when provided');
+    }
+    if (district != null && !isNonEmptyString(district)) {
+      throw new ApiError(400, 'district must be a non-empty string when provided');
+    }
+
+    const parsedLatitude = parseNullableCoordinate(latitude, { field: 'latitude', min: -90, max: 90 });
+    const parsedLongitude = parseNullableCoordinate(longitude, { field: 'longitude', min: -180, max: 180 });
+
+    const establishment = await establishmentService.createEstablishment({
+      name,
+      category,
+      image_url,
+      address: address || null,
+      country: country || null,
+      state_region: state_region || null,
+      district: district || null,
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+    });
     res.status(201).json(establishment);
   } catch (err) {
     next(err);
@@ -66,7 +101,7 @@ async function createEstablishment(req, res, next) {
 async function updateEstablishment(req, res, next) {
   try {
     const { id } = req.params || {};
-    const { name, category, image_url } = req.body || {};
+    const { name, category, image_url, address, country, state_region, district, latitude, longitude } = req.body || {};
 
     if (!isNonEmptyString(id)) {
       throw new ApiError(400, 'id is required');
@@ -84,16 +119,132 @@ async function updateEstablishment(req, res, next) {
       throw new ApiError(400, 'image_url must be a valid URL');
     }
 
+    if (address != null && !isNonEmptyString(address)) {
+      throw new ApiError(400, 'address must be a non-empty string when provided');
+    }
+    if (country != null && !isNonEmptyString(country)) {
+      throw new ApiError(400, 'country must be a non-empty string when provided');
+    }
+    if (state_region != null && !isNonEmptyString(state_region)) {
+      throw new ApiError(400, 'state_region must be a non-empty string when provided');
+    }
+    if (district != null && !isNonEmptyString(district)) {
+      throw new ApiError(400, 'district must be a non-empty string when provided');
+    }
+
+    const parsedLatitude = parseNullableCoordinate(latitude, { field: 'latitude', min: -90, max: 90 });
+    const parsedLongitude = parseNullableCoordinate(longitude, { field: 'longitude', min: -180, max: 180 });
+
     const existing = await establishmentService.getEstablishmentById(id);
     if (!existing) {
       throw new ApiError(404, 'establishment not found');
     }
 
-    const updated = await establishmentService.updateEstablishment({ id, name, category, image_url });
+    const updated = await establishmentService.updateEstablishment({
+      id,
+      name,
+      category,
+      image_url,
+      address: address || null,
+      country: country || null,
+      state_region: state_region || null,
+      district: district || null,
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+    });
     if (!updated) {
       throw new ApiError(404, 'establishment not found');
     }
     res.status(200).json(updated);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function resolveEstablishmentFromLocation(req, res, next) {
+  try {
+    const { name, address, country, state_region, district, latitude, longitude, category, image_url } = req.body || {};
+
+    if (!isNonEmptyString(name)) {
+      throw new ApiError(400, 'name is required');
+    }
+
+    if (!isNonEmptyString(address)) {
+      throw new ApiError(400, 'address is required');
+    }
+    if (country != null && !isNonEmptyString(country)) {
+      throw new ApiError(400, 'country must be a non-empty string when provided');
+    }
+    if (state_region != null && !isNonEmptyString(state_region)) {
+      throw new ApiError(400, 'state_region must be a non-empty string when provided');
+    }
+    if (district != null && !isNonEmptyString(district)) {
+      throw new ApiError(400, 'district must be a non-empty string when provided');
+    }
+
+    if (image_url != null && !isValidUrl(image_url)) {
+      throw new ApiError(400, 'image_url must be a valid URL');
+    }
+
+    const parsedLatitude = parseNullableCoordinate(latitude, { field: 'latitude', min: -90, max: 90 });
+    const parsedLongitude = parseNullableCoordinate(longitude, { field: 'longitude', min: -180, max: 180 });
+
+    if (parsedLatitude == null || parsedLongitude == null) {
+      throw new ApiError(400, 'latitude and longitude are required');
+    }
+
+    const establishment = await establishmentService.resolveFromLocation({
+      name: name.trim(),
+      address: address.trim(),
+      country: country || null,
+      state_region: state_region || null,
+      district: district || null,
+      latitude: parsedLatitude,
+      longitude: parsedLongitude,
+      category: isNonEmptyString(category) ? category.trim() : 'Map Place',
+      image_url: image_url || null,
+    });
+
+    res.status(200).json(establishment);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function searchLocation(req, res, next) {
+  try {
+    const { query, limit } = req.body || {};
+    if (!isNonEmptyString(query)) {
+      throw new ApiError(400, 'query is required');
+    }
+
+    const maxResults = limit == null ? 6 : Number(limit);
+    if (!Number.isInteger(maxResults) || maxResults < 1 || maxResults > 20) {
+      throw new ApiError(400, 'limit must be an integer between 1 and 20');
+    }
+
+    const places = await establishmentService.searchLocation({
+      queryText: query.trim(),
+      maxResults,
+    });
+    res.status(200).json({ data: places });
+  } catch (err) {
+    if (err?.code === 'OSM_SEARCH_FAILED') {
+      return next(new ApiError(502, 'OSM search is unavailable'));
+    }
+    next(err);
+  }
+}
+
+async function suggestEstablishmentImages(req, res, next) {
+  try {
+    const { query } = req.body || {};
+    if (!isNonEmptyString(query)) {
+      throw new ApiError(400, 'query is required');
+    }
+
+    const suggestions = await establishmentService.suggestImages();
+    res.status(200).json({ data: suggestions });
   } catch (err) {
     next(err);
   }
@@ -143,5 +294,8 @@ module.exports = {
   listTopReviewedEstablishments,
   createEstablishment,
   updateEstablishment,
+  resolveEstablishmentFromLocation,
+  searchLocation,
+  suggestEstablishmentImages,
   uploadEstablishmentImage,
 };

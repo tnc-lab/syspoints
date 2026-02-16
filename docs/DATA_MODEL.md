@@ -25,6 +25,12 @@ Constraints
 | name | TEXT | yes | no |  |
 | category | TEXT | yes | no |  |
 | image_url | TEXT | optional | no | Public URL of establishment image |
+| address | TEXT | optional | no | Human-readable address selected from map/search |
+| country | TEXT | optional | no | Country resolved from OSM address |
+| state_region | TEXT | optional | no | State/region resolved from OSM address |
+| district | TEXT | optional | no | District/city resolved from OSM address |
+| latitude | NUMERIC(9,6) | optional | no | Coordinate for map pin |
+| longitude | NUMERIC(9,6) | optional | no | Coordinate for map pin |
 | created_at | TIMESTAMPTZ | yes | no | Automatic |
 
 ## Review
@@ -38,7 +44,7 @@ Constraints
 | description | TEXT | yes | no | Minimum length enforced (see Business Rules) |
 | stars | INT | yes | no | Range 0–5 |
 | price | NUMERIC | yes | no | In PEN |
-| purchase_url | TEXT | yes | no | URL of purchase or consumption |
+| purchase_url | TEXT | optional | no | URL of purchase or consumption |
 | tags | TEXT[] | yes | no | Must be non-empty |
 | created_at | TIMESTAMPTZ | yes | no | Automatic |
 | points_awarded | INT | yes | no | Calculated by backend |
