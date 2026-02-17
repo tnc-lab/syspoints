@@ -5,14 +5,16 @@ const {
   listReviews,
   uploadReviewEvidenceImage,
   saveReviewAnchorTx,
+  getReviewCaptchaChallenge,
 } = require('../controllers/reviewsController');
 const { authenticate } = require('../middlewares/auth');
 
 const reviewsRouter = express.Router();
 
 reviewsRouter.post('/', authenticate, createReview);
-reviewsRouter.post('/upload-evidence', uploadReviewEvidenceImage);
+reviewsRouter.post('/upload-evidence', authenticate, uploadReviewEvidenceImage);
 reviewsRouter.post('/:id/anchor-tx', authenticate, saveReviewAnchorTx);
+reviewsRouter.get('/captcha-challenge', authenticate, getReviewCaptchaChallenge);
 reviewsRouter.get('/', listReviews);
 reviewsRouter.get('/:id', getReviewById);
 

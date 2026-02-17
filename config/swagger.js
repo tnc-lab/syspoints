@@ -549,6 +549,8 @@ swaggerSpec.paths = {
                   purchase_url: 'https://example.com',
                   tags: ['tag1', 'tag2'],
                   evidence_images: ['https://example.com/image1.png'],
+                  captcha_token: 'token-when-required',
+                  captcha_answer: '42',
                 },
               },
             },
@@ -571,6 +573,44 @@ swaggerSpec.paths = {
         },
         409: {
           description: 'Conflict',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+      },
+    },
+  },
+  '/reviews/captcha-challenge': {
+    get: {
+      summary: 'Get captcha challenge for review submission',
+      security: [{ BearerAuth: [] }],
+      responses: {
+        200: {
+          description: 'OK',
+          content: {
+            'application/json': {
+              examples: {
+                noCaptcha: {
+                  value: {
+                    requires_captcha: false,
+                    reviews_count: 0,
+                    cooldown_minutes: 10,
+                  },
+                },
+                captchaRequired: {
+                  value: {
+                    requires_captcha: true,
+                    reviews_count: 3,
+                    cooldown_minutes: 10,
+                    challenge: 'Resuelve: 17 + 8',
+                    captcha_token: 'opaque-token',
+                    captcha_expires_at: '2026-02-16T10:00:00.000Z',
+                  },
+                },
+              },
+            },
+          },
+        },
+        401: {
+          description: 'Unauthorized',
           content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
         },
       },

@@ -182,10 +182,34 @@ async function listReviews(dbClient, { limit, offset, establishmentId, sort }) {
   return { rows: dataResult.rows, total: countResult.rows[0]?.total || 0 };
 }
 
+async function countByUserId(dbClient, userId) {
+  const result = await dbClient.query(
+    `SELECT COUNT(*)::int AS total
+     FROM reviews
+     WHERE user_id = $1`,
+    [userId]
+  );
+  return result.rows[0]?.total || 0;
+}
+
+async function findLatestByUserId(dbClient, userId) {
+  const result = await dbClient.query(
+    `SELECT created_at
+     FROM reviews
+     WHERE user_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
 module.exports = {
   createReview,
   findById,
   findCoreById,
   upsertReviewAnchor,
   listReviews,
+  countByUserId,
+  findLatestByUserId,
 };

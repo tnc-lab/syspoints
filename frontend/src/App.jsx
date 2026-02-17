@@ -249,6 +249,15 @@ function App() {
   const [establishmentCategory, setEstablishmentCategory] = useState("")
   const [reviewWizardStep, setReviewWizardStep] = useState(1)
   const [reviewWizardStatus, setReviewWizardStatus] = useState("")
+  const [reviewCaptcha, setReviewCaptcha] = useState({
+    loading: false,
+    requiresCaptcha: false,
+    challenge: "",
+    token: "",
+    expiresAt: "",
+    answer: "",
+    error: "",
+  })
   const [uploadingReviewEvidence, setUploadingReviewEvidence] = useState(false)
 
   const [reviews, setReviews] = useState([])
@@ -981,6 +990,11 @@ function App() {
   }
 
   const uploadReviewEvidenceImage = async (file) => {
+    if (!token) {
+      setAuthStatus("Inicia sesión con tu wallet antes de subir evidencias.")
+      return
+    }
+
     if (reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES) {
       setAuthStatus(`You can upload up to ${MAX_REVIEW_EVIDENCE_IMAGES} evidence images.`)
       return
@@ -1008,7 +1022,13 @@ function App() {
         evidence_images: [...prev.evidence_images, uploaded.image_url].slice(0, MAX_REVIEW_EVIDENCE_IMAGES),
       }))
     } catch (error) {
-      setAuthStatus(error?.message || "No se pudo subir la evidencia.")
+      const message = String(error?.message || "")
+      const isAuthError = /invalid token|missing bearer token|unauthorized|401/i.test(message)
+      setAuthStatus(
+        isAuthError
+          ? "Tu sesión expiró o no es válida. Conecta tu wallet e inicia sesión nuevamente."
+          : (error?.message || "No se pudo subir la evidencia.")
+      )
     } finally {
       setUploadingReviewEvidence(false)
     }
@@ -1430,6 +1450,45 @@ function App() {
       setEstablishments(result || [])
     } catch {
       setEstablishments([])
+    }
+  }
+
+  const fetchReviewCaptchaChallenge = async () => {
+    if (!token) {
+      setReviewCaptcha({
+        loading: false,
+        requiresCaptcha: false,
+        challenge: "",
+        token: "",
+        expiresAt: "",
+        answer: "",
+        error: "",
+      })
+      return
+    }
+
+    setReviewCaptcha((prev) => ({ ...prev, loading: true, error: "" }))
+    try {
+      const response = await apiFetch("/reviews/captcha-challenge")
+      setReviewCaptcha({
+        loading: false,
+        requiresCaptcha: Boolean(response?.requires_captcha),
+        challenge: String(response?.challenge || ""),
+        token: String(response?.captcha_token || ""),
+        expiresAt: String(response?.captcha_expires_at || ""),
+        answer: "",
+        error: "",
+      })
+    } catch (error) {
+      setReviewCaptcha({
+        loading: false,
+        requiresCaptcha: false,
+        challenge: "",
+        token: "",
+        expiresAt: "",
+        answer: "",
+        error: error?.message || "No se pudo cargar el captcha.",
+      })
     }
   }
 
@@ -1936,6 +1995,27 @@ function App() {
         return
       }
 
+      if (reviewCaptcha.requiresCaptcha) {
+        if (!reviewCaptcha.token) {
+          setAuthStatus("Captcha no disponible. Recarga el captcha e inténtalo de nuevo.")
+          setReviewTx((prev) => ({
+            ...prev,
+            step: "error",
+            message: "Captcha no disponible. Recarga el captcha e inténtalo de nuevo.",
+          }))
+          return
+        }
+        if (!String(reviewCaptcha.answer || "").trim()) {
+          setAuthStatus("Debes resolver el captcha antes de enviar la reseña.")
+          setReviewTx((prev) => ({
+            ...prev,
+            step: "error",
+            message: "Debes resolver el captcha antes de enviar la reseña.",
+          }))
+          return
+        }
+      }
+
       const tags = reviewForm.tags
         .split(",")
         .map((tag) => tag.trim())
@@ -1951,6 +2031,8 @@ function App() {
         purchase_url: String(reviewForm.purchase_url || "").trim() || null,
         tags,
         evidence_images: reviewForm.evidence_images,
+        captcha_token: reviewCaptcha.requiresCaptcha ? reviewCaptcha.token : null,
+        captcha_answer: reviewCaptcha.requiresCaptcha ? String(reviewCaptcha.answer || "").trim() : null,
       }
 
       const provider = getWalletProvider()
@@ -2094,6 +2176,10 @@ function App() {
       setActivePage("reviews")
     } catch (error) {
       const message = getWalletErrorMessage(error, "Failed to submit review.")
+      if (/invalid captcha|captcha_token and captcha_answer are required/i.test(message)) {
+        await fetchReviewCaptchaChallenge()
+        setReviewWizardStep(9)
+      }
       setAuthStatus(message)
       setReviewTx((prev) => ({
         ...prev,
@@ -2130,6 +2216,11 @@ function App() {
       setAuthStatus("")
     }
   }, [activePage, authStatus])
+
+  useEffect(() => {
+    if (activePage !== "review") return
+    fetchReviewCaptchaChallenge()
+  }, [activePage, token])
 
   useEffect(() => {
     if (activePage !== "review") return
@@ -3137,8 +3228,13 @@ function App() {
                         <FileUpload
                           accept="image/jpeg,image/png,image/webp"
                           onFile={(file) => uploadReviewEvidenceImage(file)}
-                          disabled={uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
+                          disabled={!token || uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
                         />
+                        {!token && (
+                          <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                            Debes iniciar sesión con tu wallet para subir evidencias.
+                          </div>
+                        )}
                         {uploadingReviewEvidence && <p>Subiendo evidencia...</p>}
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ fontSize: "12px", color: "#6b7280" }}>
@@ -3159,6 +3255,49 @@ function App() {
                             ))}
                           </div>
                         </div>
+                        {reviewCaptcha.loading && (
+                          <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                            Cargando captcha...
+                          </div>
+                        )}
+                        {reviewCaptcha.requiresCaptcha && (
+                          <div style={{ display: "grid", gap: "8px" }}>
+                            <div style={{ fontSize: "12px", color: "#6b7280" }}>
+                              Verificación adicional: ya tienes reseñas previas. Resuelve el captcha para enviar una nueva.
+                            </div>
+                            <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                              {reviewCaptcha.challenge || "Captcha no disponible"}
+                            </div>
+                            <input
+                              className="input"
+                              placeholder="Respuesta del captcha"
+                              value={reviewCaptcha.answer}
+                              onChange={(event) =>
+                                setReviewCaptcha((prev) => ({ ...prev, answer: event.target.value, error: "" }))
+                              }
+                            />
+                            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                              <button
+                                type="button"
+                                className="ghost-button"
+                                onClick={fetchReviewCaptchaChallenge}
+                                disabled={reviewCaptcha.loading}
+                              >
+                                {reviewCaptcha.loading ? "Recargando..." : "Recargar captcha"}
+                              </button>
+                              {reviewCaptcha.expiresAt && (
+                                <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                  Expira: {new Date(reviewCaptcha.expiresAt).toLocaleTimeString()}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                        {reviewCaptcha.error && (
+                          <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                            {reviewCaptcha.error}
+                          </div>
+                        )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(8)}>
                             Atrás
@@ -3177,7 +3316,13 @@ function App() {
                 <button
                   className="primary-button"
                   onClick={submitReview}
-                  disabled={submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"}
+                  disabled={
+                    submittingReview ||
+                    reviewTx.step === "preparing" ||
+                    reviewTx.step === "signing" ||
+                    reviewTx.step === "pending" ||
+                    (reviewCaptcha.requiresCaptcha && !String(reviewCaptcha.answer || "").trim())
+                  }
                 >
                   {submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"
                     ? "Submitting..."
