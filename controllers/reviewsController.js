@@ -3,6 +3,7 @@ const { reviewService } = require('../services/reviewService');
 const { uploadImageDataUrl } = require('../services/fileStorageService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { isNonEmptyString, isValidUuid, isPositiveNumber, isValidUrl } = require('../utils/validation');
+const { buildReviewCaptchaChallenge, verifyReviewCaptchaAnswer } = require('../utils/reviewCaptcha');
 
 const ALLOWED_IMAGE_MIME = {
   'image/jpeg': 'jpg',
@@ -28,10 +29,15 @@ async function createReview(req, res, next) {
       purchase_url,
       tags,
       evidence_images,
+      captcha_token,
+      captcha_answer,
     } = req.body || {};
 
     if (!isValidUuid(user_id)) {
       throw new ApiError(400, 'user_id must be a UUID');
+    }
+    if (req.auth?.sub !== user_id) {
+      throw new ApiError(403, 'user_id does not match authenticated user');
     }
 
     if (!isValidUuid(establishment_id)) {
@@ -78,6 +84,21 @@ async function createReview(req, res, next) {
       throw new ApiError(400, 'evidence_images must contain valid URLs');
     }
 
+    const captchaPolicy = await reviewService.shouldRequireReviewCaptcha(user_id);
+    if (captchaPolicy.required) {
+      if (!isNonEmptyString(captcha_token) || !isNonEmptyString(captcha_answer)) {
+        throw new ApiError(400, 'captcha_token and captcha_answer are required for immediate subsequent reviews');
+      }
+      const check = verifyReviewCaptchaAnswer({
+        userId: user_id,
+        token: captcha_token,
+        answer: captcha_answer,
+      });
+      if (!check.ok) {
+        throw new ApiError(400, 'invalid captcha');
+      }
+    }
+
     const idempotencyKey = req.header('Idempotency-Key') || null;
 
     const review = await reviewService.createReview({
@@ -94,6 +115,39 @@ async function createReview(req, res, next) {
     });
 
     res.status(201).json(review);
+  } catch (err) {
+    next(err);
+  }
+}
+
+async function getReviewCaptchaChallenge(req, res, next) {
+  try {
+    const userId = req.auth?.sub;
+    if (!isValidUuid(userId)) {
+      throw new ApiError(401, 'invalid token');
+    }
+
+    const policy = await reviewService.shouldRequireReviewCaptcha(userId);
+    const requiresCaptcha = policy.required;
+
+    if (!requiresCaptcha) {
+      res.status(200).json({
+        requires_captcha: false,
+        reviews_count: policy.reviewsCount,
+        cooldown_minutes: policy.cooldownMinutes,
+      });
+      return;
+    }
+
+    const challenge = buildReviewCaptchaChallenge({ userId });
+    res.status(200).json({
+      requires_captcha: true,
+      reviews_count: policy.reviewsCount,
+      cooldown_minutes: policy.cooldownMinutes,
+      challenge: challenge.question,
+      captcha_token: challenge.token,
+      captcha_expires_at: challenge.expires_at,
+    });
   } catch (err) {
     next(err);
   }
@@ -240,4 +294,11 @@ async function listReviews(req, res, next) {
   }
 }
 
-module.exports = { createReview, getReviewById, listReviews, uploadReviewEvidenceImage, saveReviewAnchorTx };
+module.exports = {
+  createReview,
+  getReviewById,
+  listReviews,
+  uploadReviewEvidenceImage,
+  saveReviewAnchorTx,
+  getReviewCaptchaChallenge,
+};

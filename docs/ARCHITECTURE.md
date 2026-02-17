@@ -385,6 +385,12 @@ Validation notes:
 - `stars` must be an integer between 0 and 5.
 - `purchase_url` is optional; when provided, it must be a valid URL.
 - `evidence_images` must contain between 1 and 3 valid URLs.
+- Captcha policy: captcha is required only for immediate subsequent review attempts (configurable cooldown window after the latest review). When required, client must send `captcha_token` and `captcha_answer`.
+
+`GET /reviews/captcha-challenge` (authenticated)
+- Returns whether captcha is required for the current user.
+- Response includes `cooldown_minutes`.
+- If required, returns a short-lived arithmetic challenge and `captcha_token`.
 
 `POST /reviews/upload-evidence`
 - Request body:
