@@ -6,6 +6,8 @@ const {
   findCoreById,
   upsertReviewAnchor,
   listReviews: listReviewsRepo,
+  countByUserId,
+  findLatestByUserId,
 } = require('../repositories/reviewRepository');
 const { findById: findUserById } = require('../repositories/userRepository');
 const { createEvidenceBatch } = require('../repositories/reviewEvidenceRepository');
@@ -230,11 +232,43 @@ async function saveReviewAnchorTxService({
   }
 }
 
+async function countReviewsByUserIdService(userId) {
+  if (!userId) return 0;
+  return countByUserId({ query }, userId);
+}
+
+async function shouldRequireReviewCaptchaService(userId) {
+  if (!userId) return { required: false, reviewsCount: 0, cooldownMinutes: 10 };
+
+  const reviewsCount = await countByUserId({ query }, userId);
+  const cooldownMinutesRaw = Number(process.env.REVIEW_CAPTCHA_COOLDOWN_MINUTES || 10);
+  const cooldownMinutes = Number.isFinite(cooldownMinutesRaw) && cooldownMinutesRaw > 0
+    ? cooldownMinutesRaw
+    : 10;
+
+  if (reviewsCount < 1) {
+    return { required: false, reviewsCount, cooldownMinutes };
+  }
+
+  const latest = await findLatestByUserId({ query }, userId);
+  const latestCreatedAt = latest?.created_at ? new Date(latest.created_at).getTime() : 0;
+  if (!latestCreatedAt) {
+    return { required: false, reviewsCount, cooldownMinutes };
+  }
+
+  const elapsedMs = Date.now() - latestCreatedAt;
+  const required = elapsedMs <= cooldownMinutes * 60 * 1000;
+
+  return { required, reviewsCount, cooldownMinutes };
+}
+
 module.exports = {
   reviewService: {
     createReview: createReviewService,
     getReviewById: getReviewByIdService,
     listReviews: listReviewsService,
     saveReviewAnchorTx: saveReviewAnchorTxService,
+    countReviewsByUserId: countReviewsByUserIdService,
+    shouldRequireReviewCaptcha: shouldRequireReviewCaptchaService,
   },
 };
