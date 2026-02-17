@@ -2274,6 +2274,7 @@ function App() {
         isConnected={Boolean(walletAddress && token)}
         isAdmin={Boolean(walletAddress && token && isAdmin)}
         hasWalletProvider={hasWalletProvider}
+        activePage={activePage}
         onWalletAction={handleWalletAction}
         onNavigate={setActivePage}
       />
