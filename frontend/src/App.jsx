@@ -90,6 +90,22 @@ const normalizeAddress = (value) => {
   }
 }
 
+const normalizeDomain = (value) => String(value || "").trim().replace(/^https?:\/\//i, "").replace(/\/.*$/, "")
+
+const buildSiweMessage = ({
+  domain,
+  address,
+  uri,
+  chainId,
+  nonce,
+  issuedAt,
+  expirationTime,
+  statement = "Sign in to Syspoints with your wallet.",
+}) => {
+  const safeStatement = String(statement || "").trim()
+  return `${domain} wants you to sign in with your Ethereum account:\n${address}\n\n${safeStatement ? `${safeStatement}\n` : ""}URI: ${uri}\nVersion: 1\nChain ID: ${chainId}\nNonce: ${nonce}\nIssued At: ${issuedAt}\nExpiration Time: ${expirationTime}`
+}
+
 const truncateWithEllipsis = (value, maxChars) => {
   const text = String(value || "")
   if (text.length <= maxChars) return text
@@ -97,7 +113,23 @@ const truncateWithEllipsis = (value, maxChars) => {
 }
 
 const getWalletErrorMessage = (error, fallback = "Wallet connection failed.") => {
-  if (error?.code === 4001) return "Request rejected in wallet."
+  const code = String(error?.code || "")
+  const nestedCode = String(error?.info?.error?.code || "")
+  const message = String(error?.message || "")
+  const nestedMessage = String(error?.info?.error?.message || "")
+  const combined = `${message} ${nestedMessage}`.toLowerCase()
+
+  if (
+    code === "4001" ||
+    nestedCode === "4001" ||
+    code === "ACTION_REJECTED" ||
+    combined.includes("user rejected") ||
+    combined.includes("ethers-user-denied") ||
+    combined.includes("rejected")
+  ) {
+    return "Firma cancelada en la wallet."
+  }
+
   if (error?.code === -32002) return "Wallet request already pending. Open your wallet extension."
   if (error?.code === 4100) return "Wallet access not authorized. Approve this dApp in your wallet."
   if (error?.message === "No wallet account available.") return "No account found in this wallet. Create or import an account first."
@@ -192,6 +224,7 @@ function App() {
   const [walletModalMode, setWalletModalMode] = useState("connect")
   const [walletModalStatus, setWalletModalStatus] = useState("")
   const [walletFlowStep, setWalletFlowStep] = useState("idle")
+  const [authFlowState, setAuthFlowState] = useState(token ? "autenticado" : "no conectado")
   const [walletSelection, setWalletSelection] = useState("")
   const [showTxModal, setShowTxModal] = useState(false)
   const [txModalVisible, setTxModalVisible] = useState(false)
@@ -365,6 +398,7 @@ function App() {
     setToken("")
     setCurrentUserRole("")
     setWalletUserName("")
+    setAuthFlowState("no conectado")
     localStorage.removeItem("syspoints_token")
     localStorage.removeItem("syspoints_user_name")
   }
@@ -606,22 +640,33 @@ function App() {
     }
     const provider = new ethers.BrowserProvider(providerSource)
 
+    setAuthFlowState("firmando")
     await ensureNetwork(providerSource)
-    const nonceResponse = await apiFetch("/auth/nonce", {
-      method: "POST",
-      body: JSON.stringify({ wallet_address: normalizedAddress }),
+    const browserDomain = typeof window !== "undefined" ? normalizeDomain(window.location.host) : ""
+    const browserOrigin = typeof window !== "undefined" ? window.location.origin : ""
+    const nonceParams = new URLSearchParams({
+      address: normalizedAddress,
+      chain_id: String(CHAIN_ID || ""),
+      domain: browserDomain,
+      uri: browserOrigin,
     })
-
-    if (nonceResponse.nonce === "invalid") {
-      return { needsRegistration: true }
-    }
+    const nonceResponse = await apiFetch(`/auth/siwe/nonce?${nonceParams.toString()}`)
 
     const signer = await provider.getSigner(normalizedAddress)
-    const message = `Syspoints login nonce: ${nonceResponse.nonce}`
+    const message = buildSiweMessage({
+      domain: nonceResponse.domain || browserDomain,
+      address: normalizedAddress,
+      uri: nonceResponse.uri || browserOrigin,
+      chainId: Number(nonceResponse.chain_id || CHAIN_ID),
+      nonce: nonceResponse.nonce,
+      issuedAt: nonceResponse.issued_at,
+      expirationTime: nonceResponse.expires_at,
+      statement: nonceResponse.statement || "Sign in to Syspoints with your wallet.",
+    })
     const signature = await signer.signMessage(message)
-    const tokenResponse = await apiFetch("/auth/token", {
+    const tokenResponse = await apiFetch("/auth/siwe/verify", {
       method: "POST",
-      body: JSON.stringify({ wallet_address: normalizedAddress, signature }),
+      body: JSON.stringify({ message, signature }),
     })
 
     persistSession(tokenResponse.access_token, fallbackName)
@@ -632,7 +677,8 @@ function App() {
       // keep session active even if profile fetch fails
     }
     setAuthStatus("Signed in successfully.")
-    return { needsRegistration: false }
+    setAuthFlowState("autenticado")
+    return { ok: true }
   }
 
   const connectWallet = async (walletType = "other") => {
@@ -669,21 +715,14 @@ function App() {
       setWalletAddress(address)
       setWalletFlowStep("signin")
       setWalletModalStatus("Please sign the login message in your wallet.")
-      const signInResult = await signInWithWallet(address, "", provider)
-
-      if (signInResult.needsRegistration) {
-        setWalletModalMode("register")
-        setWalletFlowStep("idle")
-        setWalletModalStatus("Wallet conectada. Completa el registro para continuar.")
-        setAuthStatus("Wallet connected. Complete your registration.")
-        return
-      }
+      await signInWithWallet(address, "", provider)
 
       setWalletFlowStep("idle")
       setWalletModalStatus("Wallet conectada correctamente.")
       setTimeout(() => closeWalletModal(), 250)
     } catch (error) {
       setWalletFlowStep("idle")
+      setAuthFlowState("error")
       const message = getWalletErrorMessage(error, `${selectedOption.label} connection failed.`)
       setWalletModalStatus(message)
       setAuthStatus(message)
@@ -1024,6 +1063,9 @@ function App() {
     } catch (error) {
       const message = String(error?.message || "")
       const isAuthError = /invalid token|missing bearer token|unauthorized|401/i.test(message)
+      if (isAuthError) {
+        setAuthFlowState("sesion expirada")
+      }
       setAuthStatus(
         isAuthError
           ? "Tu sesión expiró o no es válida. Conecta tu wallet e inicia sesión nuevamente."
@@ -2287,6 +2329,7 @@ function App() {
               <>
                 <p>Select a wallet provider to continue.</p>
                 <div className="pill" style={{ marginBottom: "12px" }}>{detectProvider()}</div>
+                <div className="pill" style={{ marginBottom: "12px" }}>Auth state: {authFlowState}</div>
                 {!hasWalletProvider ? (
                   <div className="wallet-install-box">
                     <p style={{ margin: 0 }}>

@@ -568,6 +568,10 @@
   gap: 8px;
 }
 
+.topbar-mobile-shortcuts {
+  display: none;
+}
+
 .nav-link {
   background: transparent;
   border: 1px solid transparent;
@@ -665,11 +669,30 @@
   }
 
   .topbar-inner {
-    grid-template-columns: auto auto;
+    grid-template-columns: auto 1fr auto;
+    gap: 10px;
   }
 
   .menu-toggle {
     display: inline-flex;
+    order: 3;
+  }
+
+  .topbar-mobile-shortcuts {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+    order: 2;
+  }
+
+  .topbar-mobile-shortcuts .nav-link {
+    padding: 8px 10px;
+  }
+
+  .topbar-mobile-shortcuts .lang-button {
+    padding: 8px 10px;
   }
 
   .topbar-menu {
@@ -712,6 +735,11 @@
   .topbar-actions {
     justify-content: flex-start;
     width: 100%;
+  }
+
+  .topbar-actions .topbar-review-link,
+  .topbar-actions .topbar-lang-button {
+    display: none;
   }
 
   .topbar-wallet-button {

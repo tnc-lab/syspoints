@@ -85,6 +85,19 @@ export default function Header({
           <span />
           <span />
         </button>
+        <div className="topbar-mobile-shortcuts">
+          {navItems.find((item) => item.key === "review") && (
+            <button
+              className={`nav-link topbar-review-link ${activePage === "review" ? "active" : ""}`}
+              onClick={() => handleNavigate("review")}
+            >
+              {navItems.find((item) => item.key === "review").label}
+            </button>
+          )}
+          <button className="lang-button topbar-lang-button">
+            English ▾
+          </button>
+        </div>
 
         <div className={`topbar-menu ${menuOpen ? "open" : ""}`}>
           <nav className="topbar-nav">
@@ -105,13 +118,13 @@ export default function Header({
             {/* Render the review button first, then language selector */}
             {navItems.find((item) => item.key === "review") && (
               <button
-                className={`nav-link ${activePage === "review" ? "active" : ""}`}
+                className={`nav-link topbar-review-link ${activePage === "review" ? "active" : ""}`}
                 onClick={() => handleNavigate("review")}
               >
                 {navItems.find((item) => item.key === "review").label}
               </button>
             )}
-            <button className="lang-button">
+            <button className="lang-button topbar-lang-button">
               English ▾
             </button>
             <button className="primary-button topbar-wallet-button" onClick={onWalletAction} title={walletAddress || "Connect wallet"}>

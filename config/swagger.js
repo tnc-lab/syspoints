@@ -113,22 +113,17 @@ const options = {
 const swaggerSpec = swaggerJSDoc(options);
 
 swaggerSpec.paths = {
-  '/auth/nonce': {
-    post: {
-      summary: 'Issue login nonce',
-      requestBody: {
-        required: true,
-        content: {
-          'application/json': {
-            examples: {
-              byWallet: {
-                summary: 'By wallet_address',
-                value: { wallet_address: '0x1234567890abcdef1234567890abcdef12345678' },
-              },
-            },
-          },
+  '/auth/siwe/nonce': {
+    get: {
+      summary: 'Issue SIWE nonce',
+      parameters: [
+        {
+          in: 'query',
+          name: 'address',
+          required: true,
+          schema: { type: 'string' },
         },
-      },
+      ],
       responses: {
         200: { description: 'Nonce issued' },
         400: {
@@ -142,18 +137,18 @@ swaggerSpec.paths = {
       },
     },
   },
-  '/auth/token': {
+  '/auth/siwe/verify': {
     post: {
-      summary: 'Issue JWT token',
+      summary: 'Verify SIWE message and issue JWT',
       requestBody: {
         required: true,
         content: {
           'application/json': {
             examples: {
-              bySignature: {
-                summary: 'By wallet signature',
+              bySiwe: {
+                summary: 'By SIWE message + signature',
                 value: {
-                  wallet_address: '0x1234567890abcdef1234567890abcdef12345678',
+                  message: 'example.com wants you to sign in with your Ethereum account: ...',
                   signature: '0x...',
                 },
               },
