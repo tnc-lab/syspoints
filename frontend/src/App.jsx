@@ -4,6 +4,7 @@ import { ethers } from "ethers"
 import Header from "./components/Header"
 import Footer from "./components/Footer"
 import FileUpload from "./components/FileUpload"
+import WalletModal from "./components/WalletModal"
 import { API_BASE, ABI, CHAIN_ID, CONTRACT_ADDRESS, EXPLORER_TX_BASE_URL, RPC_URL } from "./config"
 import "./App.css"
 
@@ -38,16 +39,29 @@ const WALLET_OPTION_CONFIG = {
   metamask: {
     key: "metamask",
     label: "MetaMask",
+    description: "Browser extension",
+    icon: "https://cdn.jsdelivr.net/gh/MetaMask/brand-resources@master/SVG/metamask-fox.svg",
     installUrl: "https://metamask.io/download/",
+  },
+  walletconnect: {
+    key: "walletconnect",
+    label: "WalletConnect",
+    description: "Scan with mobile wallet",
+    icon: "https://avatars.githubusercontent.com/u/37784886?s=200&v=4",
+    installUrl: "",
   },
   pali: {
     key: "pali",
     label: "PaliWallet",
-    installUrl: "https://paliwallet.com/",
+    description: "Browser extension",
+    icon: "https://www.paliwallet.com/images/logo/logo-white.svg",
+    installUrl: "https://www.paliwallet.com/",
   },
   other: {
     key: "other",
     label: "Other Wallet",
+    description: "Injected EVM provider",
+    icon: "",
     installUrl: "",
   },
 }
@@ -61,7 +75,7 @@ const getInjectedProviders = () => {
 }
 
 const isMetaMaskProvider = (provider) => Boolean(provider?.isMetaMask)
-const isPaliProvider = (provider) => Boolean(provider?.isPaliWallet)
+const isPaliProvider = (provider) => Boolean(provider?.isPaliWallet || provider?.isPali)
 
 const resolveWalletProvider = (walletType) => {
   const providers = getInjectedProviders()
@@ -73,6 +87,11 @@ const resolveWalletProvider = (walletType) => {
 
   if (walletType === "pali") {
     return providers.find((provider) => isPaliProvider(provider)) || null
+  }
+
+  if (walletType === "walletconnect") {
+    // WalletConnect is not available via injected provider-only flow.
+    return null
   }
 
   if (walletType === "other") {
@@ -202,6 +221,24 @@ const parseTokenPayload = (jwtToken) => {
 }
 
 function App() {
+  const getNetworkLabel = ({ chainId, name }) => {
+    const numericChainId = Number(chainId)
+    const knownNetworks = {
+      57: "Syscoin Mainnet",
+      5700: "Syscoin Testnet",
+      57042: "Syscoin Devnet",
+    }
+    if (knownNetworks[numericChainId]) return knownNetworks[numericChainId]
+    if (name && name !== "unknown") return String(name)
+    return Number.isFinite(numericChainId) ? `Chain ${numericChainId}` : "Unknown network"
+  }
+
+  const identifyWalletLabel = (provider, fallback = "Wallet") => {
+    if (isMetaMaskProvider(provider)) return "MetaMask"
+    if (isPaliProvider(provider)) return "PaliWallet"
+    return fallback || "Wallet"
+  }
+
   const [walletAddress, setWalletAddress] = useState("")
   const [wrongNetwork, setWrongNetwork] = useState(false)
   const [token, setToken] = useState(localStorage.getItem("syspoints_token") || "")
@@ -215,16 +252,17 @@ function App() {
     const payload = parseTokenPayload(localStorage.getItem("syspoints_token") || "")
     return payload?.name || ""
   })
+  const [connectedWalletLabel, setConnectedWalletLabel] = useState(() => localStorage.getItem("syspoints_wallet_label") || "")
+  const [walletNetworkLabel, setWalletNetworkLabel] = useState("")
   const [authStatus, setAuthStatus] = useState("")
   const [profileStatus, setProfileStatus] = useState("")
   const [profileBusy, setProfileBusy] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
-  const [walletModalMode, setWalletModalMode] = useState("connect")
   const [walletModalStatus, setWalletModalStatus] = useState("")
   const [walletFlowStep, setWalletFlowStep] = useState("idle")
-  const [authFlowState, setAuthFlowState] = useState(token ? "autenticado" : "no conectado")
+  const [authFlowState, setAuthFlowState] = useState(token ? "connected" : "idle")
   const [walletSelection, setWalletSelection] = useState("")
   const [showTxModal, setShowTxModal] = useState(false)
   const [txModalVisible, setTxModalVisible] = useState(false)
@@ -375,6 +413,10 @@ function App() {
         available: Boolean(resolveWalletProvider("metamask")),
       },
       {
+        ...WALLET_OPTION_CONFIG.walletconnect,
+        available: false,
+      },
+      {
         ...WALLET_OPTION_CONFIG.pali,
         available: Boolean(resolveWalletProvider("pali")),
       },
@@ -384,10 +426,6 @@ function App() {
       },
     ]
   }, [])
-  const missingInstallWallets = useMemo(
-    () => walletOptions.filter((option) => !option.available && option.installUrl),
-    [walletOptions]
-  )
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -398,9 +436,12 @@ function App() {
     setToken("")
     setCurrentUserRole("")
     setWalletUserName("")
-    setAuthFlowState("no conectado")
+    setConnectedWalletLabel("")
+    setWalletNetworkLabel("")
+    setAuthFlowState("idle")
     localStorage.removeItem("syspoints_token")
     localStorage.removeItem("syspoints_user_name")
+    localStorage.removeItem("syspoints_wallet_label")
   }
 
   useEffect(() => {
@@ -410,8 +451,10 @@ function App() {
       try {
         const network = await provider.getNetwork()
         setWrongNetwork(Number(network.chainId) !== Number(import.meta.env.VITE_CHAIN_ID))
+        setWalletNetworkLabel(getNetworkLabel({ chainId: Number(network.chainId), name: network.name }))
       } catch {
         setWrongNetwork(false)
+        setWalletNetworkLabel("")
       }
     }
 
@@ -440,6 +483,12 @@ function App() {
         return
       }
 
+      if (!connectedWalletLabel && typeof window !== "undefined") {
+        const detectedLabel = identifyWalletLabel(window.ethereum, "Wallet")
+        setConnectedWalletLabel(detectedLabel)
+        localStorage.setItem("syspoints_wallet_label", detectedLabel)
+      }
+
       if (tokenWalletAddress && tokenWalletAddress.toLowerCase() !== nextAddress.toLowerCase()) {
         clearSession()
         setAuthStatus("Wallet account does not match current session. Please sign in again.")
@@ -449,11 +498,13 @@ function App() {
     const handleChainChanged = (chainId) => {
       const parsedChainId = typeof chainId === "string" ? parseInt(chainId, 16) : Number(chainId)
       setWrongNetwork(Number(parsedChainId) !== Number(import.meta.env.VITE_CHAIN_ID))
+      setWalletNetworkLabel(getNetworkLabel({ chainId: parsedChainId }))
     }
 
     const handleDisconnect = () => {
       setWalletAddress("")
       setWrongNetwork(false)
+      setWalletNetworkLabel("")
       clearSession()
       setAuthStatus("Wallet disconnected.")
     }
@@ -468,7 +519,7 @@ function App() {
       window.ethereum.removeListener("chainChanged", handleChainChanged)
       window.ethereum.removeListener("disconnect", handleDisconnect)
     }
-  }, [walletAddress, token])
+  }, [connectedWalletLabel, walletAddress, token])
 
   useEffect(() => {
     fetchReviews(1)
@@ -640,7 +691,7 @@ function App() {
     }
     const provider = new ethers.BrowserProvider(providerSource)
 
-    setAuthFlowState("firmando")
+    setAuthFlowState("connecting")
     await ensureNetwork(providerSource)
     const browserDomain = typeof window !== "undefined" ? normalizeDomain(window.location.host) : ""
     const browserOrigin = typeof window !== "undefined" ? window.location.origin : ""
@@ -653,6 +704,7 @@ function App() {
     const nonceResponse = await apiFetch(`/auth/siwe/nonce?${nonceParams.toString()}`)
 
     const signer = await provider.getSigner(normalizedAddress)
+    setAuthFlowState("awaiting_signature")
     const message = buildSiweMessage({
       domain: nonceResponse.domain || browserDomain,
       address: normalizedAddress,
@@ -677,7 +729,7 @@ function App() {
       // keep session active even if profile fetch fails
     }
     setAuthStatus("Signed in successfully.")
-    setAuthFlowState("autenticado")
+    setAuthFlowState("connected")
     return { ok: true }
   }
 
@@ -685,8 +737,15 @@ function App() {
     const selectedOption = WALLET_OPTION_CONFIG[walletType] || WALLET_OPTION_CONFIG.other
     const provider = resolveWalletProvider(walletType)
     if (!provider) {
+      if (walletType === "walletconnect") {
+        setWalletModalStatus("WalletConnect no está habilitado en esta versión. Usa una wallet inyectada.")
+        return
+      }
       if (selectedOption.installUrl) {
-        setWalletModalStatus(`${selectedOption.label} is not installed in this browser. Install it and try again.`)
+        if (typeof window !== "undefined") {
+          window.open(selectedOption.installUrl, "_blank", "noopener,noreferrer")
+        }
+        setWalletModalStatus(`${selectedOption.label} is not installed in this browser. We opened the install page.`)
       } else if (!hasWalletProvider) {
         setWalletModalStatus("Wallet provider not found. Install MetaMask or PaliWallet.")
       } else {
@@ -698,6 +757,7 @@ function App() {
     activeWalletProviderRef.current = provider
     setWalletSelection(walletType)
     setWalletBusy(true)
+    setAuthFlowState("connecting")
     setWalletFlowStep("network")
     setWalletModalStatus("")
     try {
@@ -713,17 +773,28 @@ function App() {
       }
 
       setWalletAddress(address)
+      const detectedLabel = identifyWalletLabel(provider, selectedOption.label)
+      setConnectedWalletLabel(detectedLabel)
+      localStorage.setItem("syspoints_wallet_label", detectedLabel)
+      try {
+        const connectedNetwork = await (new ethers.BrowserProvider(provider)).getNetwork()
+        setWalletNetworkLabel(getNetworkLabel({ chainId: Number(connectedNetwork.chainId), name: connectedNetwork.name }))
+      } catch {
+        setWalletNetworkLabel("")
+      }
       setWalletFlowStep("signin")
       setWalletModalStatus("Please sign the login message in your wallet.")
       await signInWithWallet(address, "", provider)
 
       setWalletFlowStep("idle")
       setWalletModalStatus("Wallet conectada correctamente.")
+      setAuthFlowState("connected")
       setTimeout(() => closeWalletModal(), 250)
     } catch (error) {
       setWalletFlowStep("idle")
-      setAuthFlowState("error")
       const message = getWalletErrorMessage(error, `${selectedOption.label} connection failed.`)
+      const isRejected = /cancelada|rejected|denied/i.test(String(message || ""))
+      setAuthFlowState(isRejected ? "rejected" : "error")
       setWalletModalStatus(message)
       setAuthStatus(message)
     } finally {
@@ -733,7 +804,7 @@ function App() {
   }
 
   const openWalletModal = () => {
-    setWalletModalMode("connect")
+    setAuthFlowState("idle")
     setWalletModalStatus("")
     setShowWalletModal(true)
     setTimeout(() => setModalVisible(true), 10)
@@ -757,7 +828,6 @@ function App() {
   }
 
   const closeWalletModal = () => {
-    setWalletModalMode("connect")
     setWalletModalStatus("")
     setWalletFlowStep("idle")
     setWalletSelection("")
@@ -1064,7 +1134,7 @@ function App() {
       const message = String(error?.message || "")
       const isAuthError = /invalid token|missing bearer token|unauthorized|401/i.test(message)
       if (isAuthError) {
-        setAuthFlowState("sesion expirada")
+        setAuthFlowState("expired")
       }
       setAuthStatus(
         isAuthError
@@ -1152,54 +1222,6 @@ function App() {
       setLocationSearch((prev) => ({ ...prev, error: error?.message || "No se pudo subir imagen." }))
     } finally {
       setUploadingSelectedEstablishmentImage(false)
-    }
-  }
-
-  const registerUser = async () => {
-    if (!walletAddress) {
-      setWalletModalStatus("Connect your wallet first.")
-      return
-    }
-
-    if (!profile.name || !profile.avatar_url) {
-      setWalletModalStatus("Name and avatar URL are required.")
-      return
-    }
-
-    setWalletBusy(true)
-    setWalletModalStatus("")
-    try {
-      const createdUser = await apiFetch("/users", {
-        method: "POST",
-        body: JSON.stringify({
-          wallet_address: walletAddress,
-          email: profile.email || null,
-          name: profile.name,
-          avatar_url: profile.avatar_url,
-        }),
-      })
-
-      await signInWithWallet(walletAddress, createdUser?.name || profile.name)
-      hydrateProfileFromUser(createdUser)
-      setWalletModalStatus("Registro completado y sesión iniciada.")
-      setTimeout(() => closeWalletModal(), 250)
-    } catch (error) {
-      if ((error.message || "").toLowerCase().includes("exists")) {
-        try {
-          await signInWithWallet(walletAddress, profile.name)
-          setWalletModalStatus("Wallet ya registrada. Sesión iniciada.")
-          setTimeout(() => closeWalletModal(), 250)
-          return
-        } catch {
-          setWalletModalStatus("Wallet already registered. Sign in failed.")
-        }
-        return
-      }
-      const message = error?.message || "Registration failed."
-      setWalletModalStatus(message)
-      setAuthStatus(message)
-    } finally {
-      setWalletBusy(false)
     }
   }
 
@@ -2312,6 +2334,8 @@ function App() {
     <div className="app-shell">
       <Header
         walletAddress={walletAddress}
+        walletProviderLabel={connectedWalletLabel || "Wallet"}
+        walletNetworkLabel={walletNetworkLabel}
         walletUserName={walletUserName}
         isConnected={Boolean(walletAddress && token)}
         isAdmin={Boolean(walletAddress && token && isAdmin)}
@@ -2321,122 +2345,18 @@ function App() {
         onNavigate={setActivePage}
       />
 
-      {showWalletModal && (
-        <div className={`modal-overlay ${modalVisible ? "show" : ""}`} onClick={closeWalletModal}>
-          <div className={`modal-card ${modalVisible ? "show" : ""}`} onClick={(event) => event.stopPropagation()}>
-            <h3>{walletModalMode === "connect" ? "Connect a wallet" : "Complete your profile"}</h3>
-            {walletModalMode === "connect" ? (
-              <>
-                <p>Select a wallet provider to continue.</p>
-                <div className="pill" style={{ marginBottom: "12px" }}>{detectProvider()}</div>
-                <div className="pill" style={{ marginBottom: "12px" }}>Auth state: {authFlowState}</div>
-                {!hasWalletProvider ? (
-                  <div className="wallet-install-box">
-                    <p style={{ margin: 0 }}>
-                      No EVM wallet detected in this browser. You can still browse in read-only mode.
-                    </p>
-                    <div className="wallet-install-links">
-                      <a href="https://metamask.io/download/" target="_blank" rel="noreferrer">Install MetaMask</a>
-                      <a href="https://paliwallet.com/" target="_blank" rel="noreferrer">Install PaliWallet</a>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="wallet-grid">
-                      <button className="wallet-button" onClick={() => connectWallet("metamask")} disabled={walletBusy || !walletOptions[0].available}>
-                        {walletBusy
-                          ? walletSelection === "metamask" && walletFlowStep === "network"
-                            ? "Switching network..."
-                            : walletSelection === "metamask" && walletFlowStep === "accounts"
-                              ? "Requesting account..."
-                              : walletSelection === "metamask"
-                                ? "Waiting signature..."
-                                : "MetaMask"
-                          : walletOptions[0].available
-                            ? "MetaMask"
-                            : "MetaMask (Not installed)"}
-                      </button>
-                      <button className="wallet-button" onClick={() => connectWallet("pali")} disabled={walletBusy || !walletOptions[1].available}>
-                        {walletBusy
-                          ? walletSelection === "pali" && walletFlowStep === "network"
-                            ? "Switching network..."
-                            : walletSelection === "pali" && walletFlowStep === "accounts"
-                              ? "Requesting account..."
-                              : walletSelection === "pali"
-                                ? "Waiting signature..."
-                                : "PaliWallet"
-                          : walletOptions[1].available
-                            ? "PaliWallet"
-                            : "PaliWallet (Not installed)"}
-                      </button>
-                      <button className="wallet-button" onClick={() => connectWallet("other")} disabled={walletBusy || !walletOptions[2].available}>
-                        {walletBusy
-                          ? walletSelection === "other" && walletFlowStep === "network"
-                            ? "Switching network..."
-                            : walletSelection === "other" && walletFlowStep === "accounts"
-                              ? "Requesting account..."
-                              : walletSelection === "other"
-                                ? "Waiting signature..."
-                                : "Other Wallet"
-                          : walletOptions[2].available
-                            ? "Other Wallet"
-                            : "Other Wallet (Not detected)"}
-                      </button>
-                    </div>
-                    {missingInstallWallets.length > 0 && (
-                      <div className="wallet-install-links" style={{ marginTop: "10px" }}>
-                        {missingInstallWallets.map((option) => (
-                          <a key={option.key} href={option.installUrl} target="_blank" rel="noreferrer">
-                            Install {option.label}
-                          </a>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <p>Wallet connected. Finish registration to continue.</p>
-                <div className="pill" style={{ marginBottom: "12px" }}>
-                  {walletAddress ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}` : ""}
-                </div>
-                <div className="input-group">
-                  <input
-                    className="input"
-                    placeholder="Name"
-                    value={profile.name}
-                    onChange={(event) => setProfile({ ...profile, name: event.target.value })}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Email (optional)"
-                    value={profile.email}
-                    onChange={(event) => setProfile({ ...profile, email: event.target.value })}
-                  />
-                  <input
-                    className="input"
-                    placeholder="Avatar URL"
-                    value={profile.avatar_url}
-                    onChange={(event) => setProfile({ ...profile, avatar_url: event.target.value })}
-                  />
-                </div>
-                <button className="primary-button" onClick={registerUser} disabled={walletBusy}>
-                  {walletBusy ? "Registering..." : "Register and continue"}
-                </button>
-              </>
-            )}
-            {walletModalStatus && (
-              <div style={{ marginTop: "12px", color: "#e85151" }}>
-                {walletModalStatus}
-              </div>
-            )}
-            <button className="ghost-button" style={{ marginTop: "16px" }} onClick={closeWalletModal}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
+      <WalletModal
+        isOpen={showWalletModal}
+        isVisible={modalVisible}
+        walletOptions={walletOptions}
+        walletBusy={walletBusy}
+        walletSelection={walletSelection}
+        authFlowState={authFlowState}
+        statusMessage={walletModalStatus}
+        providerLabel={detectProvider()}
+        onClose={closeWalletModal}
+        onConnectWallet={connectWallet}
+      />
 
       {showTxModal && (
         <div className={`modal-overlay ${txModalVisible ? "show" : ""}`} onClick={closeReviewTxModal}>

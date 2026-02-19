@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 export default function Header({
   walletAddress,
+  walletProviderLabel,
+  walletNetworkLabel,
   walletUserName,
   isConnected,
   isAdmin,
@@ -11,11 +13,14 @@ export default function Header({
   activePage,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [walletOpen, setWalletOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const walletRef = useRef(null)
 
   const shortAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
     : ""
-  const connectedLabel = walletUserName || shortAddress || "Wallet connected"
+  const connectedLabel = walletProviderLabel || walletUserName || "Wallet"
   const navItems = useMemo(() => {
     const items = [
       { key: "review", label: "Review" },
@@ -38,6 +43,7 @@ export default function Header({
 
   useEffect(() => {
     setMenuOpen(false)
+    setWalletOpen(false)
   }, [activePage, isAdmin, isConnected])
 
   useEffect(() => {
@@ -52,19 +58,51 @@ export default function Header({
   }, [])
 
   useEffect(() => {
-    if (!menuOpen || typeof window === "undefined") return
+    if ((!menuOpen && !walletOpen) || typeof window === "undefined") return
     const handleEscape = (event) => {
       if (event.key === "Escape") {
         setMenuOpen(false)
+        setWalletOpen(false)
       }
     }
     window.addEventListener("keydown", handleEscape)
     return () => window.removeEventListener("keydown", handleEscape)
-  }, [menuOpen])
+  }, [menuOpen, walletOpen])
+
+  useEffect(() => {
+    if (!walletOpen || typeof window === "undefined") return
+    const handleOutside = (event) => {
+      if (!walletRef.current?.contains(event.target)) {
+        setWalletOpen(false)
+      }
+    }
+    document.addEventListener("mousedown", handleOutside)
+    return () => document.removeEventListener("mousedown", handleOutside)
+  }, [walletOpen])
 
   const handleNavigate = (page) => {
     onNavigate(page)
     setMenuOpen(false)
+    setWalletOpen(false)
+  }
+
+  const handleWalletClick = () => {
+    if (!isConnected) {
+      onWalletAction()
+      return
+    }
+    setWalletOpen((prev) => !prev)
+  }
+
+  const handleCopyAddress = async () => {
+    if (!walletAddress) return
+    try {
+      await navigator.clipboard.writeText(walletAddress)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1400)
+    } catch {
+      setCopied(false)
+    }
   }
 
   return (
@@ -127,9 +165,36 @@ export default function Header({
             <button className="lang-button topbar-lang-button">
               English ▾
             </button>
-            <button className="primary-button topbar-wallet-button" onClick={onWalletAction} title={walletAddress || "Connect wallet"}>
-              {isConnected ? `${connectedLabel} | Desconectar` : hasWalletProvider ? "Connect wallet" : "Install wallet"}
-            </button>
+            <div className="wallet-menu-wrap" ref={walletRef}>
+              <button className="primary-button topbar-wallet-button" onClick={handleWalletClick} title={walletAddress || "Login"} aria-expanded={walletOpen}>
+                <span className="wallet-trigger-main">
+                  <span className="wallet-trigger-label">{isConnected ? connectedLabel : "Login"}</span>
+                  {isConnected ? <span className="wallet-trigger-address">{shortAddress}</span> : null}
+                </span>
+                {isConnected ? <span className="wallet-trigger-caret">⌄</span> : null}
+              </button>
+
+              {isConnected && walletOpen && (
+                <div className="wallet-dropdown">
+                  <div className="wallet-dropdown-header">
+                    <strong>{connectedLabel}</strong>
+                    <span className="wallet-net-chip">{walletNetworkLabel || "Unknown"}</span>
+                  </div>
+                  <div className="wallet-dropdown-box">
+                    <div className="wallet-dropdown-address-label">Address</div>
+                    <div className="wallet-dropdown-address">{walletAddress}</div>
+                  </div>
+                  <div className="wallet-dropdown-actions">
+                    <button className="ghost-button wallet-copy-btn" onClick={handleCopyAddress}>
+                      {copied ? "Copied" : "Copy"}
+                    </button>
+                    <button className="ghost-button wallet-disconnect-btn" onClick={onWalletAction}>
+                      Disconnect
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
