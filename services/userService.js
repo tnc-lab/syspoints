@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const { Wallet } = require('ethers');
-const { findByEmail, findByWallet, createUser, listUsers, findById, updateById } = require('../repositories/userRepository');
+const { findByEmail, findByWallet, createUser, listUsers, findById, updateById, upsertWalletForUser } = require('../repositories/userRepository');
 const { ApiError } = require('../middlewares/errorHandler');
 
 async function createUserService({ wallet_address, email, name, avatar_url }) {
@@ -26,7 +26,7 @@ async function createUserService({ wallet_address, email, name, avatar_url }) {
 
   const id = crypto.randomUUID();
 
-  return createUser({
+  const created = await createUser({
     id,
     wallet_address: walletAddress,
     email: email || null,
@@ -34,6 +34,9 @@ async function createUserService({ wallet_address, email, name, avatar_url }) {
     avatar_url,
     role: 'user',
   });
+
+  await upsertWalletForUser({ userId: created.id, address: walletAddress });
+  return created;
 }
 
 async function updateUserProfileService(userId, { name, email, avatar_url }) {

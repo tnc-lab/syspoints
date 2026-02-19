@@ -2,23 +2,32 @@ const { authService } = require('../services/authService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { isNonEmptyString } = require('../utils/validation');
 
-async function issueNonce(req, res, next) {
-  try {
-    const { wallet_address } = req.body || {};
+function resolveRequestDomain(req) {
+  const origin = req.header('origin') || '';
+  const host = req.header('x-forwarded-host') || req.header('host') || '';
+  return origin || host;
+}
 
-    if (!isNonEmptyString(wallet_address)) {
-      throw new ApiError(400, 'wallet_address is invalid');
+async function getSiweNonce(req, res, next) {
+  try {
+    const walletAddress = String(req.query?.address || '').trim();
+    if (!isNonEmptyString(walletAddress)) {
+      throw new ApiError(400, 'address query param is required');
     }
 
-    const result = await authService.issueNonce({ wallet_address });
+    const domainSource = resolveRequestDomain(req);
+    const domain = String(req.query?.domain || domainSource).trim();
+    const uri = String(req.query?.uri || req.header('origin') || '').trim();
+    const chainId = Number(req.query?.chain_id || 0);
+
+    const result = await authService.issueSiweNonce({
+      walletAddress,
+      domain,
+      uri,
+      chainId,
+    });
     if (!result) {
-      // Return generic response to avoid user enumeration.
-      return res.status(200).json({
-        user_id: null,
-        wallet_address,
-        nonce: 'invalid',
-        expires_at: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      });
+      throw new ApiError(400, 'invalid wallet address');
     }
 
     return res.status(200).json(result);
@@ -27,27 +36,30 @@ async function issueNonce(req, res, next) {
   }
 }
 
-async function issueToken(req, res, next) {
+async function verifySiwe(req, res, next) {
   try {
-    const { wallet_address, signature } = req.body || {};
-
-    if (!wallet_address || !signature) {
-      throw new ApiError(400, 'wallet_address and signature are required');
+    const { message, signature } = req.body || {};
+    if (!isNonEmptyString(message) || !isNonEmptyString(signature)) {
+      throw new ApiError(400, 'message and signature are required');
     }
 
-    if (!isNonEmptyString(wallet_address) || !isNonEmptyString(signature)) {
-      throw new ApiError(400, 'wallet_address and signature must be non-empty');
+    const result = await authService.verifySiwe({
+      message,
+      signature,
+      requestDomain: resolveRequestDomain(req),
+    });
+
+    if (!result) {
+      throw new ApiError(401, 'invalid SIWE message or signature');
     }
 
-    const token = await authService.issueToken({ wallet_address, signature });
-    if (!token) {
-      throw new ApiError(401, 'invalid signature or nonce');
-    }
-
-    res.status(200).json(token);
+    return res.status(200).json(result);
   } catch (err) {
     next(err);
   }
 }
 
-module.exports = { issueNonce, issueToken };
+module.exports = {
+  getSiweNonce,
+  verifySiwe,
+};

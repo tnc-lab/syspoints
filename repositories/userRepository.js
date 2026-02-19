@@ -6,8 +6,21 @@ async function findByEmail(email) {
 }
 
 async function findByWallet(walletAddress) {
-  const result = await query('SELECT * FROM users WHERE wallet_address = $1', [walletAddress]);
-  return result.rows[0] || null;
+  const normalized = String(walletAddress || '').trim();
+  if (!normalized) return null;
+
+  const walletResult = await query(
+    `SELECT u.*
+     FROM wallets w
+     INNER JOIN users u ON u.id = w.user_id
+     WHERE lower(w.address) = lower($1)
+     LIMIT 1`,
+    [normalized]
+  );
+  if (walletResult.rows[0]) return walletResult.rows[0];
+
+  const legacyResult = await query('SELECT * FROM users WHERE lower(wallet_address) = lower($1)', [normalized]);
+  return legacyResult.rows[0] || null;
 }
 
 async function createUser({ id, wallet_address, email, name, avatar_url, role }) {
@@ -18,6 +31,49 @@ async function createUser({ id, wallet_address, email, name, avatar_url, role })
     [id, wallet_address, email, name, avatar_url, role]
   );
   return result.rows[0];
+}
+
+async function upsertWalletForUser({ userId, address }) {
+  const normalized = String(address || '').trim();
+  if (!normalized) return null;
+
+  const result = await query(
+    `INSERT INTO wallets (user_id, address, last_login)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (address)
+     DO UPDATE
+     SET user_id = EXCLUDED.user_id,
+         last_login = NOW()
+     RETURNING id, user_id, address, last_login`,
+    [userId, normalized]
+  );
+  return result.rows[0] || null;
+}
+
+async function touchWalletLastLogin(address) {
+  const normalized = String(address || '').trim();
+  if (!normalized) return null;
+  const result = await query(
+    `UPDATE wallets
+     SET last_login = NOW()
+     WHERE lower(address) = lower($1)
+     RETURNING id, user_id, address, last_login`,
+    [normalized]
+  );
+  return result.rows[0] || null;
+}
+
+async function findWalletRecord(address) {
+  const normalized = String(address || '').trim();
+  if (!normalized) return null;
+  const result = await query(
+    `SELECT id, user_id, address, last_login, created_at
+     FROM wallets
+     WHERE lower(address) = lower($1)
+     LIMIT 1`,
+    [normalized]
+  );
+  return result.rows[0] || null;
 }
 
 async function listUsers() {
@@ -61,9 +117,12 @@ async function setAuthNonce(userId, nonce, expiresAt) {
 
 async function findAuthByWallet(walletAddress) {
   const result = await query(
-    `SELECT id, wallet_address, email, name, role, auth_nonce, auth_nonce_expires_at
-     FROM users
-     WHERE wallet_address = $1`,
+    `SELECT u.id, u.wallet_address, u.email, u.name, u.role, u.auth_nonce, u.auth_nonce_expires_at
+     FROM users u
+     LEFT JOIN wallets w ON w.user_id = u.id
+     WHERE lower(u.wallet_address) = lower($1) OR lower(w.address) = lower($1)
+     ORDER BY w.created_at DESC NULLS LAST
+     LIMIT 1`,
     [walletAddress]
   );
   return result.rows[0] || null;
@@ -86,6 +145,9 @@ module.exports = {
   listUsers,
   findById,
   updateById,
+  upsertWalletForUser,
+  touchWalletLastLogin,
+  findWalletRecord,
   setAuthNonce,
   findAuthByWallet,
   findAuthByEmail,
