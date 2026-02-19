@@ -63,6 +63,35 @@ const WALLET_OPTION_CONFIG = {
   },
 }
 
+const EIP6963_REGISTRY_KEY = "__syspoints_eip6963_registry"
+
+const getEip6963Registry = () => {
+  if (typeof window === "undefined") return []
+  const current = window[EIP6963_REGISTRY_KEY]
+  return Array.isArray(current) ? current : []
+}
+
+const registerEip6963Provider = (detail) => {
+  if (typeof window === "undefined") return
+  const provider = detail?.provider
+  if (!provider || typeof provider !== "object" || typeof provider.request !== "function") return
+  const info = detail?.info && typeof detail.info === "object" ? detail.info : {}
+  const current = getEip6963Registry()
+  const existingIndex = current.findIndex((entry) => entry?.provider === provider)
+  if (existingIndex >= 0) {
+    current[existingIndex] = { ...current[existingIndex], info: { ...current[existingIndex]?.info, ...info }, provider }
+    window[EIP6963_REGISTRY_KEY] = current
+    return
+  }
+  window[EIP6963_REGISTRY_KEY] = [...current, { info, provider }]
+}
+
+const getEip6963Info = (provider) => {
+  if (!provider) return null
+  const entry = getEip6963Registry().find((candidate) => candidate?.provider === provider)
+  return entry?.info || null
+}
+
 const getInjectedProviders = () => {
   if (typeof window === "undefined") return []
 
@@ -79,6 +108,8 @@ const getInjectedProviders = () => {
     }
     maybePush(window.ethereum)
   }
+
+  getEip6963Registry().forEach((entry) => maybePush(entry?.provider))
 
   // Common non-standard globals used by some wallet extensions.
   maybePush(window.pali)
@@ -99,10 +130,35 @@ const providerIdentityText = (provider) =>
   String(
     provider?.name ||
     provider?.providerInfo?.name ||
+    getEip6963Info(provider)?.name ||
     provider?.providerInfo?.rdns ||
+    getEip6963Info(provider)?.rdns ||
+    provider?.providerInfo?.id ||
+    getEip6963Info(provider)?.id ||
     provider?.providerInfo?.uuid ||
+    getEip6963Info(provider)?.uuid ||
+    provider?._events?.connect?.info?.name ||
     ""
   ).toLowerCase()
+
+const isKnownPaliGlobal = (provider) => {
+  if (typeof window === "undefined" || !provider) return false
+
+  const directCandidates = [
+    window.pali,
+    window.paliWallet,
+    window.paliwallet,
+    window.paliEthereum,
+  ]
+  if (directCandidates.some((candidate) => candidate === provider)) return true
+
+  const nestedCandidates = directCandidates.flatMap((candidate) => [
+    candidate?.ethereum,
+    candidate?.provider,
+    candidate?.walletProvider,
+  ])
+  return nestedCandidates.some((candidate) => candidate === provider)
+}
 
 const detectProviderType = (provider) => {
   if (!provider) return "other"
@@ -110,7 +166,16 @@ const detectProviderType = (provider) => {
   if (
     provider?.isPaliWallet ||
     provider?.isPali ||
-    identity.includes("pali")
+    provider?.isPaliwallet ||
+    provider?.isPALI ||
+    isKnownPaliGlobal(provider) ||
+    identity.includes("paliwallet") ||
+    identity.includes("pali wallet") ||
+    identity.includes("pali") ||
+    identity.includes("syscoin") ||
+    identity.includes("pollum") ||
+    identity.includes("com.paliwallet") ||
+    identity.includes("io.paliwallet")
   ) {
     return "pali"
   }
@@ -129,19 +194,75 @@ const detectProviderType = (provider) => {
 const isPaliProvider = (provider) => detectProviderType(provider) === "pali"
 const isMetaMaskProvider = (provider) => detectProviderType(provider) === "metamask"
 
+const eip6963InfoText = (info) =>
+  String(
+    info?.name ||
+    info?.rdns ||
+    info?.id ||
+    info?.uuid ||
+    ""
+  ).toLowerCase()
+
+const isEip6963MetaMaskInfo = (info) => {
+  const text = eip6963InfoText(info)
+  if (!text) return false
+  if (!/metamask/i.test(text) && !/io\.metamask/i.test(text)) return false
+  return !/pali|pollum|syscoin/i.test(text)
+}
+
+const isEip6963PaliInfo = (info) => /pali|paliwallet|pollum|syscoin/i.test(eip6963InfoText(info))
+
+const getPaliSpecificProviders = () => {
+  if (typeof window === "undefined") return []
+
+  const candidates = []
+  const maybePush = (provider) => {
+    if (!provider || typeof provider !== "object") return
+    if (typeof provider.request !== "function") return
+    candidates.push(provider)
+  }
+
+  const directCandidates = [
+    window.pali,
+    window.paliWallet,
+    window.paliwallet,
+    window.paliEthereum,
+  ]
+  directCandidates.forEach((candidate) => {
+    maybePush(candidate)
+    maybePush(candidate?.ethereum)
+    maybePush(candidate?.provider)
+    maybePush(candidate?.walletProvider)
+  })
+
+  return Array.from(new Set(candidates))
+}
+
 const resolveWalletProvider = (walletType) => {
+  const eip6963Entries = getEip6963Registry()
   const providers = getInjectedProviders()
   if (!providers.length) return null
 
   if (walletType === "metamask") {
-    return providers.find((provider) => detectProviderType(provider) === "metamask") || null
+    const eipMetaMask = eip6963Entries.find((entry) => isEip6963MetaMaskInfo(entry?.info))
+    if (eipMetaMask?.provider) return eipMetaMask.provider
+    return providers.find((provider) => isMetaMaskProvider(provider) && !isKnownPaliGlobal(provider)) || null
   }
 
   if (walletType === "pali") {
-    return providers.find((provider) => detectProviderType(provider) === "pali") || null
+    const eipPali = eip6963Entries.find((entry) => isEip6963PaliInfo(entry?.info))
+    if (eipPali?.provider) return eipPali.provider
+    const paliSpecificProviders = getPaliSpecificProviders()
+    return (
+      paliSpecificProviders.find((provider) => isPaliProvider(provider)) ||
+      providers.find((provider) => isPaliProvider(provider) || isKnownPaliGlobal(provider)) ||
+      null
+    )
   }
 
   if (walletType === "other") {
+    const eipOther = eip6963Entries.find((entry) => detectProviderType(entry?.provider) === "other")
+    if (eipOther?.provider) return eipOther.provider
     return providers.find((provider) => detectProviderType(provider) === "other") || null
   }
 
@@ -281,8 +402,8 @@ function App() {
   }
 
   const identifyWalletLabel = (provider, fallback = "Wallet") => {
-    if (isMetaMaskProvider(provider)) return "MetaMask"
     if (isPaliProvider(provider)) return "PaliWallet"
+    if (isMetaMaskProvider(provider)) return "MetaMask"
     return fallback || "Wallet"
   }
 
@@ -512,19 +633,38 @@ function App() {
 
   useEffect(() => {
     if (typeof window === "undefined") return
+
+    const requestEip6963Providers = () => {
+      window.dispatchEvent(new Event("eip6963:requestProvider"))
+    }
+
     const refreshWalletProviders = () => setWalletProviderScanTick((prev) => prev + 1)
+    const refreshWalletProvidersAndRequest = () => {
+      refreshWalletProviders()
+      requestEip6963Providers()
+    }
+    const handleEip6963Announcement = (event) => {
+      registerEip6963Provider(event?.detail)
+      refreshWalletProviders()
+    }
+
+    window.addEventListener("eip6963:announceProvider", handleEip6963Announcement)
     const timer = window.setInterval(refreshWalletProviders, 1500)
-    window.addEventListener("ethereum#initialized", refreshWalletProviders)
-    window.addEventListener("focus", refreshWalletProviders)
+    window.addEventListener("ethereum#initialized", refreshWalletProvidersAndRequest)
+    window.addEventListener("focus", refreshWalletProvidersAndRequest)
+    requestEip6963Providers()
     return () => {
       window.clearInterval(timer)
-      window.removeEventListener("ethereum#initialized", refreshWalletProviders)
-      window.removeEventListener("focus", refreshWalletProviders)
+      window.removeEventListener("eip6963:announceProvider", handleEip6963Announcement)
+      window.removeEventListener("ethereum#initialized", refreshWalletProvidersAndRequest)
+      window.removeEventListener("focus", refreshWalletProvidersAndRequest)
     }
   }, [])
 
   useEffect(() => {
-    if (!window.ethereum) return
+    if (typeof window === "undefined") return
+    const observedProvider = activeWalletProviderRef.current || window.ethereum
+    if (!observedProvider || typeof observedProvider.request !== "function") return
 
     const tokenWalletAddress = normalizeAddress(parseTokenPayload(token)?.wallet_address)
 
@@ -545,8 +685,8 @@ function App() {
         return
       }
 
-      if (!connectedWalletLabel && typeof window !== "undefined") {
-        const detectedLabel = identifyWalletLabel(window.ethereum, "Wallet")
+      if (!connectedWalletLabel) {
+        const detectedLabel = identifyWalletLabel(observedProvider, "Wallet")
         setConnectedWalletLabel(detectedLabel)
         localStorage.setItem("syspoints_wallet_label", detectedLabel)
       }
@@ -571,17 +711,28 @@ function App() {
       setAuthStatus("Wallet disconnected.")
     }
 
-    window.ethereum.request({ method: "eth_accounts" }).then(handleAccountsChanged).catch(() => {})
-    window.ethereum.on("accountsChanged", handleAccountsChanged)
-    window.ethereum.on("chainChanged", handleChainChanged)
-    window.ethereum.on("disconnect", handleDisconnect)
+    observedProvider.request({ method: "eth_accounts" }).then(handleAccountsChanged).catch(() => {})
+
+    const canSubscribe = typeof observedProvider.on === "function"
+    const removeListener = typeof observedProvider.removeListener === "function"
+      ? observedProvider.removeListener.bind(observedProvider)
+      : typeof observedProvider.off === "function"
+        ? observedProvider.off.bind(observedProvider)
+        : null
+
+    if (canSubscribe) {
+      observedProvider.on("accountsChanged", handleAccountsChanged)
+      observedProvider.on("chainChanged", handleChainChanged)
+      observedProvider.on("disconnect", handleDisconnect)
+    }
 
     return () => {
-      window.ethereum.removeListener("accountsChanged", handleAccountsChanged)
-      window.ethereum.removeListener("chainChanged", handleChainChanged)
-      window.ethereum.removeListener("disconnect", handleDisconnect)
+      if (!removeListener) return
+      removeListener("accountsChanged", handleAccountsChanged)
+      removeListener("chainChanged", handleChainChanged)
+      removeListener("disconnect", handleDisconnect)
     }
-  }, [connectedWalletLabel, walletAddress, token])
+  }, [connectedWalletLabel, walletAddress, token, walletSelection, walletBusy])
 
   useEffect(() => {
     fetchReviews(1)
