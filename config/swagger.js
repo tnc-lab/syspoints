@@ -708,7 +708,11 @@ swaggerSpec.paths = {
                     stars_points_yes: 1,
                     stars_points_no: 0,
                     price_points_lt_100: 1,
-                    price_points_gte_100: 2
+                    price_points_gte_100: 2,
+                    default_user_avatar_url: 'https://example.com/avatar.png',
+                    metamask_wallet_logo_url: 'https://example.com/metamask.png',
+                    pali_wallet_logo_url: 'https://example.com/pali.png',
+                    other_wallet_logo_url: 'https://example.com/other.png',
                   }
                 }
               }
@@ -742,7 +746,11 @@ swaggerSpec.paths = {
                   stars_points_yes: 1,
                   stars_points_no: 0,
                   price_points_lt_100: 1,
-                  price_points_gte_100: 2
+                  price_points_gte_100: 2,
+                  default_user_avatar_url: 'https://example.com/avatar.png',
+                  metamask_wallet_logo_url: 'https://example.com/metamask.png',
+                  pali_wallet_logo_url: 'https://example.com/pali.png',
+                  other_wallet_logo_url: 'https://example.com/other.png',
                 }
               }
             }
@@ -765,6 +773,44 @@ swaggerSpec.paths = {
         }
       }
     }
+  },
+  '/admin/points-config/wallet-logo': {
+    post: {
+      summary: 'Upload wallet logo (metamask, pali, other)',
+      security: [{ BearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: {
+          'application/json': {
+            examples: {
+              uploadLogo: {
+                value: {
+                  wallet_key: 'metamask',
+                  file_name: 'metamask-logo.png',
+                  mime_type: 'image/png',
+                  data_url: 'data:image/png;base64,...',
+                },
+              },
+            },
+          },
+        },
+      },
+      responses: {
+        201: { description: 'Created' },
+        400: {
+          description: 'Validation error',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+        401: {
+          description: 'Unauthorized',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+        403: {
+          description: 'Forbidden',
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } },
+        },
+      },
+    },
   },
   '/syscoin/review-hash': {
     post: {
