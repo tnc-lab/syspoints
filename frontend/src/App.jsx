@@ -11,6 +11,8 @@ import "./App.css"
 const DEFAULT_PAGE_SIZE = 6
 const MAX_ESTABLISHMENT_IMAGE_INPUT_BYTES = 2_000_000
 const ESTABLISHMENT_IMAGE_MAX_DIMENSION = 960
+const MAX_WALLET_LOGO_INPUT_BYTES = 1_000_000
+const WALLET_LOGO_STANDARD_SIZE = 256
 const MAX_REVIEW_EVIDENCE_IMAGES = 3
 const MIN_REVIEW_EVIDENCE_IMAGES = 1
 const MAX_REVIEW_TITLE_WORDS = 12
@@ -35,26 +37,21 @@ const ESTABLISHMENT_CATEGORIES = [
   "Services",
 ]
 const REVIEW_SUCCESS_MESSAGE = "Review submitted and anchored on-chain."
+const DEFAULT_METAMASK_LOGO = "https://cdn.jsdelivr.net/gh/MetaMask/brand-resources@master/SVG/metamask-fox.svg"
+const DEFAULT_PALI_LOGO = "https://www.paliwallet.com/images/logo/logo-white.svg"
 const WALLET_OPTION_CONFIG = {
   metamask: {
     key: "metamask",
     label: "MetaMask",
     description: "Browser extension",
-    icon: "https://cdn.jsdelivr.net/gh/MetaMask/brand-resources@master/SVG/metamask-fox.svg",
+    icon: DEFAULT_METAMASK_LOGO,
     installUrl: "https://metamask.io/download/",
-  },
-  walletconnect: {
-    key: "walletconnect",
-    label: "WalletConnect",
-    description: "Scan with mobile wallet",
-    icon: "https://avatars.githubusercontent.com/u/37784886?s=200&v=4",
-    installUrl: "",
   },
   pali: {
     key: "pali",
     label: "PaliWallet",
     description: "Browser extension",
-    icon: "https://www.paliwallet.com/images/logo/logo-white.svg",
+    icon: DEFAULT_PALI_LOGO,
     installUrl: "https://www.paliwallet.com/",
   },
   other: {
@@ -67,35 +64,85 @@ const WALLET_OPTION_CONFIG = {
 }
 
 const getInjectedProviders = () => {
-  if (typeof window === "undefined" || !window.ethereum) return []
-  if (Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0) {
-    return window.ethereum.providers
+  if (typeof window === "undefined") return []
+
+  const candidates = []
+  const maybePush = (provider) => {
+    if (!provider || typeof provider !== "object") return
+    if (typeof provider.request !== "function") return
+    candidates.push(provider)
   }
-  return [window.ethereum]
+
+  if (window.ethereum) {
+    if (Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0) {
+      window.ethereum.providers.forEach((provider) => maybePush(provider))
+    }
+    maybePush(window.ethereum)
+  }
+
+  // Common non-standard globals used by some wallet extensions.
+  maybePush(window.pali)
+  maybePush(window.paliWallet)
+  maybePush(window.paliEthereum)
+  maybePush(window.paliwallet)
+
+  // Heuristic scan for globals that look like Pali providers.
+  Object.keys(window).forEach((key) => {
+    if (!/pali/i.test(key)) return
+    maybePush(window[key])
+  })
+
+  return Array.from(new Set(candidates))
 }
 
-const isMetaMaskProvider = (provider) => Boolean(provider?.isMetaMask)
-const isPaliProvider = (provider) => Boolean(provider?.isPaliWallet || provider?.isPali)
+const providerIdentityText = (provider) =>
+  String(
+    provider?.name ||
+    provider?.providerInfo?.name ||
+    provider?.providerInfo?.rdns ||
+    provider?.providerInfo?.uuid ||
+    ""
+  ).toLowerCase()
+
+const detectProviderType = (provider) => {
+  if (!provider) return "other"
+  const identity = providerIdentityText(provider)
+  if (
+    provider?.isPaliWallet ||
+    provider?.isPali ||
+    identity.includes("pali")
+  ) {
+    return "pali"
+  }
+  if (
+    provider?.isMetaMask &&
+    !provider?.isCoinbaseWallet &&
+    !provider?.isRabby &&
+    !provider?.isBraveWallet &&
+    !identity.includes("pali")
+  ) {
+    return "metamask"
+  }
+  return "other"
+}
+
+const isPaliProvider = (provider) => detectProviderType(provider) === "pali"
+const isMetaMaskProvider = (provider) => detectProviderType(provider) === "metamask"
 
 const resolveWalletProvider = (walletType) => {
   const providers = getInjectedProviders()
   if (!providers.length) return null
 
   if (walletType === "metamask") {
-    return providers.find((provider) => isMetaMaskProvider(provider)) || null
+    return providers.find((provider) => detectProviderType(provider) === "metamask") || null
   }
 
   if (walletType === "pali") {
-    return providers.find((provider) => isPaliProvider(provider)) || null
-  }
-
-  if (walletType === "walletconnect") {
-    // WalletConnect is not available via injected provider-only flow.
-    return null
+    return providers.find((provider) => detectProviderType(provider) === "pali") || null
   }
 
   if (walletType === "other") {
-    return providers.find((provider) => !isMetaMaskProvider(provider) && !isPaliProvider(provider)) || null
+    return providers.find((provider) => detectProviderType(provider) === "other") || null
   }
 
   return null
@@ -279,6 +326,7 @@ function App() {
     explorerUrl: "",
   })
   const [walletBusy, setWalletBusy] = useState(false)
+  const [, setWalletProviderScanTick] = useState(0)
   const [activePage, setActivePage] = useState("reviews")
   const activeWalletProviderRef = useRef(null)
 
@@ -366,9 +414,13 @@ function App() {
     price_points_lt_100: 0,
     price_points_gte_100: 0,
     default_user_avatar_url: "",
+    metamask_wallet_logo_url: "",
+    pali_wallet_logo_url: "",
+    other_wallet_logo_url: "",
   })
   const [loadingPointsConfig, setLoadingPointsConfig] = useState(false)
   const [uploadingDefaultAvatar, setUploadingDefaultAvatar] = useState(false)
+  const [uploadingWalletLogoKey, setUploadingWalletLogoKey] = useState("")
   const [newEstablishment, setNewEstablishment] = useState({
     name: "",
     category: "",
@@ -405,27 +457,24 @@ function App() {
     if (!RPC_URL) return null
     return new ethers.JsonRpcProvider(RPC_URL)
   }, [])
-  const hasWalletProvider = useMemo(() => getInjectedProviders().length > 0, [])
-  const walletOptions = useMemo(() => {
-    return [
-      {
-        ...WALLET_OPTION_CONFIG.metamask,
-        available: Boolean(resolveWalletProvider("metamask")),
-      },
-      {
-        ...WALLET_OPTION_CONFIG.walletconnect,
-        available: false,
-      },
-      {
-        ...WALLET_OPTION_CONFIG.pali,
-        available: Boolean(resolveWalletProvider("pali")),
-      },
-      {
-        ...WALLET_OPTION_CONFIG.other,
-        available: Boolean(resolveWalletProvider("other")),
-      },
-    ]
-  }, [])
+  const hasWalletProvider = getInjectedProviders().length > 0
+  const walletOptions = [
+    {
+      ...WALLET_OPTION_CONFIG.metamask,
+      icon: pointsConfig.metamask_wallet_logo_url || DEFAULT_METAMASK_LOGO,
+      available: Boolean(resolveWalletProvider("metamask")),
+    },
+    {
+      ...WALLET_OPTION_CONFIG.pali,
+      icon: pointsConfig.pali_wallet_logo_url || DEFAULT_PALI_LOGO,
+      available: Boolean(resolveWalletProvider("pali")),
+    },
+    {
+      ...WALLET_OPTION_CONFIG.other,
+      icon: pointsConfig.other_wallet_logo_url || "",
+      available: Boolean(resolveWalletProvider("other")),
+    },
+  ]
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -459,6 +508,19 @@ function App() {
     }
 
     updateNetwork()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const refreshWalletProviders = () => setWalletProviderScanTick((prev) => prev + 1)
+    const timer = window.setInterval(refreshWalletProviders, 1500)
+    window.addEventListener("ethereum#initialized", refreshWalletProviders)
+    window.addEventListener("focus", refreshWalletProviders)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener("ethereum#initialized", refreshWalletProviders)
+      window.removeEventListener("focus", refreshWalletProviders)
+    }
   }, [])
 
   useEffect(() => {
@@ -526,6 +588,7 @@ function App() {
     fetchLeaderboard(1)
     fetchTopEstablishments(1)
     fetchEstablishments()
+    fetchPublicWalletBranding()
   }, [])
 
   const authPayload = useMemo(() => parseTokenPayload(token), [token])
@@ -737,10 +800,6 @@ function App() {
     const selectedOption = WALLET_OPTION_CONFIG[walletType] || WALLET_OPTION_CONFIG.other
     const provider = resolveWalletProvider(walletType)
     if (!provider) {
-      if (walletType === "walletconnect") {
-        setWalletModalStatus("WalletConnect no está habilitado en esta versión. Usa una wallet inyectada.")
-        return
-      }
       if (selectedOption.installUrl) {
         if (typeof window !== "undefined") {
           window.open(selectedOption.installUrl, "_blank", "noopener,noreferrer")
@@ -751,6 +810,14 @@ function App() {
       } else {
         setWalletModalStatus("No compatible injected wallet found for this option.")
       }
+      return
+    }
+
+    const providerType = detectProviderType(provider)
+    if ((walletType === "metamask" || walletType === "pali") && providerType !== walletType) {
+      setWalletModalStatus(
+        `No se encontró un provider independiente para ${selectedOption.label}. Abre la dApp dentro del navegador de esa wallet o desactiva temporalmente otras extensiones EVM.`
+      )
       return
     }
 
@@ -995,6 +1062,51 @@ function App() {
         dataUrl,
         mimeType: outputMime,
         fileName: file.name || "establishment",
+      }
+    } finally {
+      URL.revokeObjectURL(objectUrl)
+    }
+  }
+
+  const prepareWalletLogoImage = async (file) => {
+    const allowedMime = ["image/jpeg", "image/png", "image/webp"]
+    if (!allowedMime.includes(file.type)) {
+      throw new Error("Formato inválido para logo. Usa JPG, PNG o WEBP.")
+    }
+    if (file.size > MAX_WALLET_LOGO_INPUT_BYTES) {
+      throw new Error("El logo excede el tamaño máximo permitido (1MB).")
+    }
+
+    const objectUrl = URL.createObjectURL(file)
+    try {
+      const img = await new Promise((resolve, reject) => {
+        const image = new Image()
+        image.onload = () => resolve(image)
+        image.onerror = () => reject(new Error("No se pudo leer el logo seleccionado."))
+        image.src = objectUrl
+      })
+
+      const canvas = document.createElement("canvas")
+      canvas.width = WALLET_LOGO_STANDARD_SIZE
+      canvas.height = WALLET_LOGO_STANDARD_SIZE
+      const ctx = canvas.getContext("2d")
+      if (!ctx) throw new Error("No se pudo procesar el logo.")
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+      const scale = Math.min(canvas.width / img.width, canvas.height / img.height)
+      const targetWidth = Math.max(1, Math.round(img.width * scale))
+      const targetHeight = Math.max(1, Math.round(img.height * scale))
+      const offsetX = Math.round((canvas.width - targetWidth) / 2)
+      const offsetY = Math.round((canvas.height - targetHeight) / 2)
+      ctx.drawImage(img, offsetX, offsetY, targetWidth, targetHeight)
+
+      const outputMime = "image/png"
+      const dataUrl = canvas.toDataURL(outputMime, 0.92)
+      return {
+        dataUrl,
+        mimeType: outputMime,
+        fileName: file.name || "wallet-logo",
       }
     } finally {
       URL.revokeObjectURL(objectUrl)
@@ -1287,12 +1399,31 @@ function App() {
           price_points_lt_100: Number(config.price_points_lt_100 ?? 0),
           price_points_gte_100: Number(config.price_points_gte_100 ?? 0),
           default_user_avatar_url: config.default_user_avatar_url || "",
+          metamask_wallet_logo_url: config.metamask_wallet_logo_url || "",
+          pali_wallet_logo_url: config.pali_wallet_logo_url || "",
+          other_wallet_logo_url: config.other_wallet_logo_url || "",
         })
       }
     } catch (error) {
       setAdminStatus(error?.message || "No se pudo cargar la configuración de puntos.")
     } finally {
       setLoadingPointsConfig(false)
+    }
+  }
+
+  const fetchPublicWalletBranding = async () => {
+    try {
+      const config = await apiFetch("/config/points-config")
+      if (!config) return
+      setPointsConfig((prev) => ({
+        ...prev,
+        default_user_avatar_url: config.default_user_avatar_url || prev.default_user_avatar_url || "",
+        metamask_wallet_logo_url: config.metamask_wallet_logo_url || prev.metamask_wallet_logo_url || "",
+        pali_wallet_logo_url: config.pali_wallet_logo_url || prev.pali_wallet_logo_url || "",
+        other_wallet_logo_url: config.other_wallet_logo_url || prev.other_wallet_logo_url || "",
+      }))
+    } catch {
+      // Keep defaults if public config endpoint is unavailable.
     }
   }
 
@@ -1421,6 +1552,9 @@ function App() {
         price_points_lt_100: Number(pointsConfig.price_points_lt_100),
         price_points_gte_100: Number(pointsConfig.price_points_gte_100),
         default_user_avatar_url: pointsConfig.default_user_avatar_url || null,
+        metamask_wallet_logo_url: pointsConfig.metamask_wallet_logo_url || null,
+        pali_wallet_logo_url: pointsConfig.pali_wallet_logo_url || null,
+        other_wallet_logo_url: pointsConfig.other_wallet_logo_url || null,
       }
 
       const updated = await apiFetch("/admin/points-config", {
@@ -1437,6 +1571,9 @@ function App() {
         price_points_lt_100: Number(updated.price_points_lt_100 ?? 0),
         price_points_gte_100: Number(updated.price_points_gte_100 ?? 0),
         default_user_avatar_url: updated.default_user_avatar_url || "",
+        metamask_wallet_logo_url: updated.metamask_wallet_logo_url || "",
+        pali_wallet_logo_url: updated.pali_wallet_logo_url || "",
+        other_wallet_logo_url: updated.other_wallet_logo_url || "",
       })
       setAdminStatus("Configuración de puntos actualizada.")
     } catch (error) {
@@ -1467,6 +1604,38 @@ function App() {
       setAdminStatus(error?.message || "No se pudo subir el avatar por defecto.")
     } finally {
       setUploadingDefaultAvatar(false)
+    }
+  }
+
+  const uploadWalletLogo = async (walletKey, file) => {
+    if (!isAdmin) return
+    if (!walletKey || !file) return
+
+    setUploadingWalletLogoKey(walletKey)
+    setAdminStatus("")
+    try {
+      const prepared = await prepareWalletLogoImage(file)
+      const uploaded = await apiFetch("/admin/points-config/wallet-logo", {
+        method: "POST",
+        body: JSON.stringify({
+          wallet_key: walletKey,
+          file_name: prepared.fileName,
+          mime_type: prepared.mimeType,
+          data_url: prepared.dataUrl,
+        }),
+      })
+
+      setPointsConfig((prev) => ({
+        ...prev,
+        metamask_wallet_logo_url: uploaded.metamask_wallet_logo_url || prev.metamask_wallet_logo_url || "",
+        pali_wallet_logo_url: uploaded.pali_wallet_logo_url || prev.pali_wallet_logo_url || "",
+        other_wallet_logo_url: uploaded.other_wallet_logo_url || prev.other_wallet_logo_url || "",
+      }))
+      setAdminStatus("Logo de wallet actualizado correctamente.")
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo subir el logo de wallet.")
+    } finally {
+      setUploadingWalletLogoKey("")
     }
   }
 
@@ -3802,6 +3971,52 @@ function App() {
                       style={{ width: "88px", height: "88px", objectFit: "cover", borderRadius: "50%", border: "1px solid #e5e7eb" }}
                     />
                   )}
+                  <label style={{ fontWeight: 600, marginTop: "10px" }}>Wallet logos</label>
+                  <FileUpload
+                    accept="image/jpeg,image/png,image/webp"
+                    onFile={(file) => uploadWalletLogo("metamask", file)}
+                    disabled={uploadingWalletLogoKey === "metamask"}
+                    buttonText="Subir logo MetaMask"
+                  />
+                  {uploadingWalletLogoKey === "metamask" && <p>Subiendo logo MetaMask...</p>}
+                  {pointsConfig.metamask_wallet_logo_url && (
+                    <img
+                      src={pointsConfig.metamask_wallet_logo_url}
+                      alt="MetaMask logo"
+                      style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "8px", border: "1px solid #e5e7eb", background: "#fff" }}
+                    />
+                  )}
+                  <FileUpload
+                    accept="image/jpeg,image/png,image/webp"
+                    onFile={(file) => uploadWalletLogo("pali", file)}
+                    disabled={uploadingWalletLogoKey === "pali"}
+                    buttonText="Subir logo PaliWallet"
+                  />
+                  {uploadingWalletLogoKey === "pali" && <p>Subiendo logo PaliWallet...</p>}
+                  {pointsConfig.pali_wallet_logo_url && (
+                    <img
+                      src={pointsConfig.pali_wallet_logo_url}
+                      alt="PaliWallet logo"
+                      style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "8px", border: "1px solid #e5e7eb", background: "#fff" }}
+                    />
+                  )}
+                  <FileUpload
+                    accept="image/jpeg,image/png,image/webp"
+                    onFile={(file) => uploadWalletLogo("other", file)}
+                    disabled={uploadingWalletLogoKey === "other"}
+                    buttonText="Subir logo Other Wallet"
+                  />
+                  {uploadingWalletLogoKey === "other" && <p>Subiendo logo Other Wallet...</p>}
+                  {pointsConfig.other_wallet_logo_url && (
+                    <img
+                      src={pointsConfig.other_wallet_logo_url}
+                      alt="Other wallet logo"
+                      style={{ width: "40px", height: "40px", objectFit: "contain", borderRadius: "8px", border: "1px solid #e5e7eb", background: "#fff" }}
+                    />
+                  )}
+                  <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>
+                    Estándar recomendado: logo cuadrado {WALLET_LOGO_STANDARD_SIZE}x{WALLET_LOGO_STANDARD_SIZE}px, entrada máxima 1MB.
+                  </p>
                   <label style={{ fontWeight: 600, marginTop: "10px" }}>Configuración de puntos por review</label>
                   <input
                     className="input"

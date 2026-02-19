@@ -9,7 +9,10 @@ async function getCurrentConfig(dbClient) {
       stars_points_no,
       price_points_lt_100,
       price_points_gte_100,
-      default_user_avatar_url
+      default_user_avatar_url,
+      metamask_wallet_logo_url,
+      pali_wallet_logo_url,
+      other_wallet_logo_url
      FROM points_config
      ORDER BY created_at DESC
      LIMIT 1`
@@ -29,8 +32,11 @@ async function updateConfig(dbClient, payload) {
       stars_points_no,
       price_points_lt_100,
       price_points_gte_100,
-      default_user_avatar_url
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      default_user_avatar_url,
+      metamask_wallet_logo_url,
+      pali_wallet_logo_url,
+      other_wallet_logo_url
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      RETURNING
       image_points_yes,
       image_points_no,
@@ -40,7 +46,10 @@ async function updateConfig(dbClient, payload) {
       stars_points_no,
       price_points_lt_100,
       price_points_gte_100,
-      default_user_avatar_url`,
+      default_user_avatar_url,
+      metamask_wallet_logo_url,
+      pali_wallet_logo_url,
+      other_wallet_logo_url`,
     [
       payload.image_points_yes,
       payload.image_points_no,
@@ -51,6 +60,9 @@ async function updateConfig(dbClient, payload) {
       payload.price_points_lt_100,
       payload.price_points_gte_100,
       payload.default_user_avatar_url || null,
+      payload.metamask_wallet_logo_url || null,
+      payload.pali_wallet_logo_url || null,
+      payload.other_wallet_logo_url || null,
     ]
   );
 

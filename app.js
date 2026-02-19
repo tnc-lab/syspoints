@@ -9,6 +9,7 @@ const { authRouter } = require('./routes/auth');
 const { swaggerSpec } = require('./config/swagger');
 const { adminRouter } = require('./routes/admin');
 const { healthRouter } = require('./routes/health');
+const { configRouter } = require('./routes/config');
 const { getUploadsBaseDir } = require('./utils/uploadStorage');
 const cors = require('cors');
 
@@ -57,6 +58,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/auth', authRouter);
+app.use('/config', configRouter);
 
 app.use('/users', usersRouter);
 app.use('/establishments', establishmentsRouter);
