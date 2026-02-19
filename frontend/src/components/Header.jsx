@@ -17,8 +17,9 @@ export default function Header({
   const [copied, setCopied] = useState(false)
   const walletRef = useRef(null)
 
-  const shortAddress = walletAddress
-    ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+  const visibleWalletAddress = isConnected ? walletAddress : ""
+  const shortAddress = visibleWalletAddress
+    ? `${visibleWalletAddress.slice(0, 6)}...${visibleWalletAddress.slice(-4)}`
     : ""
   const connectedLabel = walletProviderLabel || walletUserName || "Wallet"
   const navItems = useMemo(() => {
@@ -95,9 +96,9 @@ export default function Header({
   }
 
   const handleCopyAddress = async () => {
-    if (!walletAddress) return
+    if (!visibleWalletAddress) return
     try {
-      await navigator.clipboard.writeText(walletAddress)
+      await navigator.clipboard.writeText(visibleWalletAddress)
       setCopied(true)
       setTimeout(() => setCopied(false), 1400)
     } catch {
@@ -166,7 +167,7 @@ export default function Header({
               English ▾
             </button>
             <div className="wallet-menu-wrap" ref={walletRef}>
-              <button className="primary-button topbar-wallet-button" onClick={handleWalletClick} title={walletAddress || "Login"} aria-expanded={walletOpen}>
+              <button className="primary-button topbar-wallet-button" onClick={handleWalletClick} title={visibleWalletAddress || "Login"} aria-expanded={walletOpen}>
                 <span className="wallet-trigger-main">
                   <span className="wallet-trigger-label">{isConnected ? connectedLabel : "Login"}</span>
                   {isConnected ? <span className="wallet-trigger-address">{shortAddress}</span> : null}
