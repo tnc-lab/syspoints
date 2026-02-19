@@ -39,6 +39,7 @@ npx hardhat ignition deploy ./ignition/modules/Lock.js
 
 - **Network Documentation:** [Syscoin Docs](https://docs.syscoin.org)
 - **Block Explorer:** [Syscoin Explorer](https://explorer.syscoin.org)
+- **SIWE Auth Flow:** [docs/SIWE_AUTH.md](docs/SIWE_AUTH.md)
 
 ## License
 

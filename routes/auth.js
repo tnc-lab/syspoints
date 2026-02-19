@@ -1,9 +1,13 @@
 const express = require('express');
-const { issueToken, issueNonce } = require('../controllers/authController');
+const { getSiweNonce, verifySiwe } = require('../controllers/authController');
 
 const authRouter = express.Router();
 
-authRouter.post('/nonce', issueNonce);
-authRouter.post('/token', issueToken);
+authRouter.get('/siwe/nonce', getSiweNonce);
+authRouter.post('/siwe/verify', verifySiwe);
+
+// Backward-compatible aliases
+authRouter.get('/nonce', getSiweNonce);
+authRouter.post('/verify', verifySiwe);
 
 module.exports = { authRouter };
