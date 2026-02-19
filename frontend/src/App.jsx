@@ -67,15 +67,44 @@ const WALLET_OPTION_CONFIG = {
 }
 
 const getInjectedProviders = () => {
-  if (typeof window === "undefined" || !window.ethereum) return []
-  if (Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0) {
-    return window.ethereum.providers
+  if (typeof window === "undefined") return []
+
+  const candidates = []
+  const maybePush = (provider) => {
+    if (!provider || typeof provider !== "object") return
+    if (typeof provider.request !== "function") return
+    candidates.push(provider)
   }
-  return [window.ethereum]
+
+  if (window.ethereum) {
+    if (Array.isArray(window.ethereum.providers) && window.ethereum.providers.length > 0) {
+      window.ethereum.providers.forEach((provider) => maybePush(provider))
+    }
+    maybePush(window.ethereum)
+  }
+
+  // Common non-standard globals used by some wallet extensions.
+  maybePush(window.pali)
+  maybePush(window.paliWallet)
+  maybePush(window.paliEthereum)
+  maybePush(window.paliwallet)
+
+  // Heuristic scan for globals that look like Pali providers.
+  Object.keys(window).forEach((key) => {
+    if (!/pali/i.test(key)) return
+    maybePush(window[key])
+  })
+
+  return Array.from(new Set(candidates))
 }
 
-const isMetaMaskProvider = (provider) => Boolean(provider?.isMetaMask)
-const isPaliProvider = (provider) => Boolean(provider?.isPaliWallet || provider?.isPali)
+const isPaliProvider = (provider) => {
+  if (!provider) return false
+  const providerName = String(provider?.name || provider?.providerInfo?.name || provider?.providerInfo?.rdns || "").toLowerCase()
+  return Boolean(provider?.isPaliWallet || provider?.isPali || providerName.includes("pali"))
+}
+
+const isMetaMaskProvider = (provider) => Boolean(provider?.isMetaMask) && !isPaliProvider(provider)
 
 const resolveWalletProvider = (walletType) => {
   const providers = getInjectedProviders()
@@ -279,6 +308,7 @@ function App() {
     explorerUrl: "",
   })
   const [walletBusy, setWalletBusy] = useState(false)
+  const [, setWalletProviderScanTick] = useState(0)
   const [activePage, setActivePage] = useState("reviews")
   const activeWalletProviderRef = useRef(null)
 
@@ -405,27 +435,25 @@ function App() {
     if (!RPC_URL) return null
     return new ethers.JsonRpcProvider(RPC_URL)
   }, [])
-  const hasWalletProvider = useMemo(() => getInjectedProviders().length > 0, [])
-  const walletOptions = useMemo(() => {
-    return [
-      {
-        ...WALLET_OPTION_CONFIG.metamask,
-        available: Boolean(resolveWalletProvider("metamask")),
-      },
-      {
-        ...WALLET_OPTION_CONFIG.walletconnect,
-        available: false,
-      },
-      {
-        ...WALLET_OPTION_CONFIG.pali,
-        available: Boolean(resolveWalletProvider("pali")),
-      },
-      {
-        ...WALLET_OPTION_CONFIG.other,
-        available: Boolean(resolveWalletProvider("other")),
-      },
-    ]
-  }, [])
+  const hasWalletProvider = getInjectedProviders().length > 0
+  const walletOptions = [
+    {
+      ...WALLET_OPTION_CONFIG.metamask,
+      available: Boolean(resolveWalletProvider("metamask")),
+    },
+    {
+      ...WALLET_OPTION_CONFIG.walletconnect,
+      available: false,
+    },
+    {
+      ...WALLET_OPTION_CONFIG.pali,
+      available: Boolean(resolveWalletProvider("pali")),
+    },
+    {
+      ...WALLET_OPTION_CONFIG.other,
+      available: Boolean(resolveWalletProvider("other")),
+    },
+  ]
   const explorerBaseUrl = useMemo(() => {
     const value = String(EXPLORER_TX_BASE_URL || "").trim()
     if (!value) return ""
@@ -459,6 +487,19 @@ function App() {
     }
 
     updateNetwork()
+  }, [])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const refreshWalletProviders = () => setWalletProviderScanTick((prev) => prev + 1)
+    const timer = window.setInterval(refreshWalletProviders, 1500)
+    window.addEventListener("ethereum#initialized", refreshWalletProviders)
+    window.addEventListener("focus", refreshWalletProviders)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener("ethereum#initialized", refreshWalletProviders)
+      window.removeEventListener("focus", refreshWalletProviders)
+    }
   }, [])
 
   useEffect(() => {
