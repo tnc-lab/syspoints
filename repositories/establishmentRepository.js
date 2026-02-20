@@ -102,6 +102,53 @@ async function findByNameAndAddress({ name, address }) {
   return result.rows[0] || null;
 }
 
+async function searchSavedByText({ queryText, limit = 6, category = null }) {
+  const normalizedText = String(queryText || '').trim();
+  if (!normalizedText) return [];
+  const normalizedLimit = Math.max(1, Math.min(Number(limit) || 6, 20));
+  const normalizedCategory = String(category || '').trim();
+
+  const values = [`%${normalizedText}%`];
+  let categoryFilter = '';
+  if (normalizedCategory) {
+    values.push(normalizedCategory);
+    categoryFilter = `AND lower(e.category) = lower($${values.length})`;
+  }
+
+  values.push(normalizedLimit);
+  const limitIndex = values.length;
+
+  const result = await query(
+    `SELECT
+      e.id,
+      e.name,
+      e.category,
+      e.image_url,
+      e.address,
+      e.country,
+      e.state_region,
+      e.district,
+      e.latitude,
+      e.longitude,
+      e.created_at
+     FROM establishments e
+     WHERE (
+       e.name ILIKE $1
+       OR COALESCE(e.address, '') ILIKE $1
+       OR COALESCE(e.country, '') ILIKE $1
+       OR COALESCE(e.state_region, '') ILIKE $1
+       OR COALESCE(e.district, '') ILIKE $1
+       OR COALESCE(e.category, '') ILIKE $1
+     )
+     ${categoryFilter}
+     ORDER BY e.created_at DESC
+     LIMIT $${limitIndex}`,
+    values
+  );
+
+  return result.rows;
+}
+
 async function updateEstablishment({
   id,
   name,
@@ -149,5 +196,6 @@ module.exports = {
   createEstablishment,
   findById,
   findByNameAndAddress,
+  searchSavedByText,
   updateEstablishment,
 };

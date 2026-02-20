@@ -35,7 +35,7 @@ export default function Header({
       items.push(
         { key: "admin-establishments", label: "Nuevo establishment" },
         { key: "admin-users", label: "Usuarios" },
-        { key: "admin-points", label: "Config puntos" }
+        { key: "admin-config", label: "Config" }
       )
     }
 

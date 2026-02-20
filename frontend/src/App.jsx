@@ -16,6 +16,7 @@ const WALLET_LOGO_STANDARD_SIZE = 256
 const MAX_REVIEW_EVIDENCE_IMAGES = 3
 const MIN_REVIEW_EVIDENCE_IMAGES = 1
 const MAX_REVIEW_TITLE_WORDS = 12
+const DEFAULT_MAX_REVIEW_TAGS = 5
 const HOME_REVIEW_DESCRIPTION_MAX_CHARS = 200
 const MAP_SEARCH_RESULT_LIMIT = 6
 const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
@@ -35,6 +36,7 @@ const ESTABLISHMENT_CATEGORIES = [
   "Salon",
   "Electronics",
   "Services",
+  "Others",
 ]
 const REVIEW_SUCCESS_MESSAGE = "Review submitted and anchored on-chain."
 const DEFAULT_METAMASK_LOGO = "https://cdn.jsdelivr.net/gh/MetaMask/brand-resources@master/SVG/metamask-fox.svg"
@@ -334,6 +336,8 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(numeric) ? numeric : null
 }
 
+const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim())
+
 const buildEmbeddedMapUrl = ({ latitude, longitude }) => {
   const lat = toNumberOrNull(latitude)
   const lon = toNumberOrNull(longitude)
@@ -508,6 +512,14 @@ function App() {
     error: "",
   })
   const [uploadingReviewEvidence, setUploadingReviewEvidence] = useState(false)
+  const [dailyLimitStatus, setDailyLimitStatus] = useState({
+    loading: false,
+    canReviewToday: true,
+    maxPerDay: 1,
+    reviewsToday: 0,
+    message: "",
+    error: "",
+  })
 
   const [reviews, setReviews] = useState([])
   const [reviewsMeta, setReviewsMeta] = useState({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0 })
@@ -547,6 +559,11 @@ function App() {
     metamask_wallet_logo_url: "",
     pali_wallet_logo_url: "",
     other_wallet_logo_url: "",
+    max_reviews_per_establishment_per_day: 1,
+    max_review_tags: DEFAULT_MAX_REVIEW_TAGS,
+    search_saved_establishments_enabled: true,
+    allow_global_category_search: true,
+    require_profile_completion: false,
   })
   const [loadingPointsConfig, setLoadingPointsConfig] = useState(false)
   const [uploadingDefaultAvatar, setUploadingDefaultAvatar] = useState(false)
@@ -797,6 +814,14 @@ function App() {
       error: "",
       items: [],
       selected: "",
+    })
+    setDailyLimitStatus({
+      loading: false,
+      canReviewToday: true,
+      maxPerDay: Number(pointsConfig.max_reviews_per_establishment_per_day || 1),
+      reviewsToday: 0,
+      message: "",
+      error: "",
     })
     setImageSourceMode("existing")
     setReviewWizardStep(normalizedCategory ? 2 : 1)
@@ -1113,6 +1138,14 @@ function App() {
     })
     setImageSourceMode("existing")
     setReviewSubmissionState({ key: "", signature: "" })
+    setDailyLimitStatus({
+      loading: false,
+      canReviewToday: true,
+      maxPerDay: Number(pointsConfig.max_reviews_per_establishment_per_day || 1),
+      reviewsToday: 0,
+      message: "",
+      error: "",
+    })
     setReviewWizardStatus("")
     setReviewWizardStep(1)
     if (resetCategory) {
@@ -1135,6 +1168,14 @@ function App() {
   const hasSelectedCategory = Boolean(String(establishmentCategory || "").trim())
   const hasConfirmedEstablishment = Boolean(String(reviewForm.establishment_id || "").trim())
   const reviewTitleWordCount = countWords(reviewForm.title)
+  const parsedReviewTags = reviewForm.tags
+    .split(",")
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+  const maxReviewTags = Number(pointsConfig.max_review_tags || DEFAULT_MAX_REVIEW_TAGS)
+  const categoryOptions = ESTABLISHMENT_CATEGORIES.filter((category) =>
+    category !== "Others" || Boolean(pointsConfig.allow_global_category_search)
+  )
   const hasValidReviewTitle =
     Boolean(String(reviewForm.title || "").trim()) && reviewTitleWordCount <= MAX_REVIEW_TITLE_WORDS
 
@@ -1598,20 +1639,15 @@ function App() {
       return
     }
 
-    if (!profile.name || !profile.avatar_url) {
-      setProfileStatus("Name and avatar URL are required.")
-      return
-    }
-
     setProfileBusy(true)
     setProfileStatus("")
     try {
       const updatedUser = await apiFetch("/users/me", {
         method: "PUT",
         body: JSON.stringify({
-          name: profile.name,
+          name: profile.name || null,
           email: profile.email || null,
-          avatar_url: profile.avatar_url,
+          avatar_url: profile.avatar_url || null,
         }),
       })
       hydrateProfileFromUser(updatedUser)
@@ -1642,7 +1678,7 @@ function App() {
     setLoadingPointsConfig(true)
     setAdminStatus("")
     try {
-      const config = await apiFetch("/admin/points-config")
+      const config = await apiFetch("/admin/config")
       if (config) {
         setPointsConfig({
           image_points_yes: Number(config.image_points_yes ?? 0),
@@ -1657,10 +1693,15 @@ function App() {
           metamask_wallet_logo_url: config.metamask_wallet_logo_url || "",
           pali_wallet_logo_url: config.pali_wallet_logo_url || "",
           other_wallet_logo_url: config.other_wallet_logo_url || "",
+          max_reviews_per_establishment_per_day: Number(config.max_reviews_per_establishment_per_day ?? 1),
+          max_review_tags: Number(config.max_review_tags ?? DEFAULT_MAX_REVIEW_TAGS),
+          search_saved_establishments_enabled: Boolean(config.search_saved_establishments_enabled ?? true),
+          allow_global_category_search: Boolean(config.allow_global_category_search ?? true),
+          require_profile_completion: Boolean(config.require_profile_completion ?? false),
         })
       }
     } catch (error) {
-      setAdminStatus(error?.message || "No se pudo cargar la configuración de puntos.")
+      setAdminStatus(error?.message || "No se pudo cargar la configuración.")
     } finally {
       setLoadingPointsConfig(false)
     }
@@ -1668,7 +1709,7 @@ function App() {
 
   const fetchPublicWalletBranding = async () => {
     try {
-      const config = await apiFetch("/config/points-config")
+      const config = await apiFetch("/config")
       if (!config) return
       setPointsConfig((prev) => ({
         ...prev,
@@ -1676,6 +1717,11 @@ function App() {
         metamask_wallet_logo_url: config.metamask_wallet_logo_url || prev.metamask_wallet_logo_url || "",
         pali_wallet_logo_url: config.pali_wallet_logo_url || prev.pali_wallet_logo_url || "",
         other_wallet_logo_url: config.other_wallet_logo_url || prev.other_wallet_logo_url || "",
+        max_reviews_per_establishment_per_day: Number(config.max_reviews_per_establishment_per_day ?? prev.max_reviews_per_establishment_per_day ?? 1),
+        max_review_tags: Number(config.max_review_tags ?? prev.max_review_tags ?? DEFAULT_MAX_REVIEW_TAGS),
+        search_saved_establishments_enabled: Boolean(config.search_saved_establishments_enabled ?? prev.search_saved_establishments_enabled ?? true),
+        allow_global_category_search: Boolean(config.allow_global_category_search ?? prev.allow_global_category_search ?? true),
+        require_profile_completion: Boolean(config.require_profile_completion ?? prev.require_profile_completion ?? false),
       }))
     } catch {
       // Keep defaults if public config endpoint is unavailable.
@@ -1810,9 +1856,14 @@ function App() {
         metamask_wallet_logo_url: pointsConfig.metamask_wallet_logo_url || null,
         pali_wallet_logo_url: pointsConfig.pali_wallet_logo_url || null,
         other_wallet_logo_url: pointsConfig.other_wallet_logo_url || null,
+        max_reviews_per_establishment_per_day: Number(pointsConfig.max_reviews_per_establishment_per_day),
+        max_review_tags: Number(pointsConfig.max_review_tags),
+        search_saved_establishments_enabled: Boolean(pointsConfig.search_saved_establishments_enabled),
+        allow_global_category_search: Boolean(pointsConfig.allow_global_category_search),
+        require_profile_completion: Boolean(pointsConfig.require_profile_completion),
       }
 
-      const updated = await apiFetch("/admin/points-config", {
+      const updated = await apiFetch("/admin/config", {
         method: "PUT",
         body: JSON.stringify(payload),
       })
@@ -1829,10 +1880,15 @@ function App() {
         metamask_wallet_logo_url: updated.metamask_wallet_logo_url || "",
         pali_wallet_logo_url: updated.pali_wallet_logo_url || "",
         other_wallet_logo_url: updated.other_wallet_logo_url || "",
+        max_reviews_per_establishment_per_day: Number(updated.max_reviews_per_establishment_per_day ?? 1),
+        max_review_tags: Number(updated.max_review_tags ?? DEFAULT_MAX_REVIEW_TAGS),
+        search_saved_establishments_enabled: Boolean(updated.search_saved_establishments_enabled ?? true),
+        allow_global_category_search: Boolean(updated.allow_global_category_search ?? true),
+        require_profile_completion: Boolean(updated.require_profile_completion ?? false),
       })
-      setAdminStatus("Configuración de puntos actualizada.")
+      setAdminStatus("Configuración actualizada.")
     } catch (error) {
-      setAdminStatus(error?.message || "No se pudo actualizar la configuración de puntos.")
+      setAdminStatus(error?.message || "No se pudo actualizar la configuración.")
     }
   }
 
@@ -1842,7 +1898,7 @@ function App() {
     setAdminStatus("")
     try {
       const prepared = await prepareEstablishmentImage(file)
-      const uploaded = await apiFetch("/admin/points-config/default-avatar", {
+      const uploaded = await apiFetch("/admin/config/default-avatar", {
         method: "POST",
         body: JSON.stringify({
           file_name: prepared.fileName,
@@ -1870,7 +1926,7 @@ function App() {
     setAdminStatus("")
     try {
       const prepared = await prepareWalletLogoImage(file)
-      const uploaded = await apiFetch("/admin/points-config/wallet-logo", {
+      const uploaded = await apiFetch("/admin/config/wallet-logo", {
         method: "POST",
         body: JSON.stringify({
           wallet_key: walletKey,
@@ -1980,6 +2036,42 @@ function App() {
     }
   }
 
+  const fetchDailyReviewLimitStatus = async (establishmentId) => {
+    if (!token || !isUuid(establishmentId || "")) {
+      setDailyLimitStatus((prev) => ({
+        ...prev,
+        loading: false,
+        canReviewToday: true,
+        reviewsToday: 0,
+        error: "",
+        message: "",
+      }))
+      return
+    }
+
+    setDailyLimitStatus((prev) => ({ ...prev, loading: true, error: "" }))
+    try {
+      const response = await apiFetch(`/reviews/daily-limit-status?establishment_id=${encodeURIComponent(establishmentId)}`)
+      setDailyLimitStatus({
+        loading: false,
+        canReviewToday: Boolean(response?.can_review_today),
+        maxPerDay: Number(response?.max_per_day ?? 1),
+        reviewsToday: Number(response?.reviews_today ?? 0),
+        message: String(response?.message || ""),
+        error: "",
+      })
+    } catch (error) {
+      setDailyLimitStatus({
+        loading: false,
+        canReviewToday: true,
+        maxPerDay: Number(pointsConfig.max_reviews_per_establishment_per_day || 1),
+        reviewsToday: 0,
+        message: "",
+        error: error?.message || "No se pudo validar el límite diario.",
+      })
+    }
+  }
+
   const searchLocationsByAddress = async () => {
     const query = locationSearch.query.trim()
     if (!query) {
@@ -1993,10 +2085,12 @@ function App() {
 
     setLocationSearch((prev) => ({ ...prev, loading: true, error: "", results: [] }))
     try {
+      const isGlobalCategory = establishmentCategory === "Others"
       const response = await apiFetch("/establishments/search-location", {
         method: "POST",
         body: JSON.stringify({
-          query: [establishmentCategory, query].filter(Boolean).join(" "),
+          query,
+          category: isGlobalCategory ? null : establishmentCategory,
           limit: MAP_SEARCH_RESULT_LIMIT,
         }),
       })
@@ -2006,7 +2100,8 @@ function App() {
             .map((item) => {
               const lat = toNumberOrNull(item?.latitude)
               const lon = toNumberOrNull(item?.longitude)
-              if (lat == null || lon == null) return null
+              const source = String(item?.source || "search")
+              if ((lat == null || lon == null) && source !== "db") return null
               const suggestedImages = Array.isArray(item?.suggested_images)
                 ? item.suggested_images.filter((url) => /^https?:\/\//i.test(String(url || "")))
                 : []
@@ -2017,12 +2112,12 @@ function App() {
                 country: String(item?.country || "").trim(),
                 state_region: String(item?.state_region || "").trim(),
                 district: String(item?.district || "").trim(),
-                latitude: lat,
-                longitude: lon,
-                category: String(establishmentCategory || "Services"),
-                image_url: String(suggestedImages[0] || "").trim(),
+                latitude: lat ?? locationSearch.mapCenter.latitude,
+                longitude: lon ?? locationSearch.mapCenter.longitude,
+                category: String(item?.category || establishmentCategory || "Services"),
+                image_url: String(item?.image_url || suggestedImages[0] || "").trim(),
                 suggested_images: suggestedImages,
-                source: "search",
+                source,
               }
             })
             .filter(Boolean)
@@ -2194,6 +2289,22 @@ function App() {
   const resolveAndSelectEstablishment = async () => {
     const candidate = locationSearch.selected
     if (!candidate) return
+
+    if (candidate.source === "db" && isUuid(candidate.id)) {
+      setReviewForm((prev) => ({
+        ...prev,
+        establishment_id: candidate.id,
+      }))
+      setLocationSearch((prev) => ({
+        ...prev,
+        loading: false,
+        resolving: false,
+        resolvedId: candidate.id,
+        error: "",
+      }))
+      setReviewWizardStep(3)
+      return
+    }
 
     setLocationSearch((prev) => ({ ...prev, resolving: true, error: "" }))
     try {
@@ -2457,6 +2568,27 @@ function App() {
         }))
         return
       }
+      const latestDailyLimit = await apiFetch(
+        `/reviews/daily-limit-status?establishment_id=${encodeURIComponent(reviewForm.establishment_id)}`
+      )
+      setDailyLimitStatus({
+        loading: false,
+        canReviewToday: Boolean(latestDailyLimit?.can_review_today),
+        maxPerDay: Number(latestDailyLimit?.max_per_day ?? pointsConfig.max_reviews_per_establishment_per_day ?? 1),
+        reviewsToday: Number(latestDailyLimit?.reviews_today ?? 0),
+        message: String(latestDailyLimit?.message || ""),
+        error: "",
+      })
+      if (!latestDailyLimit?.can_review_today) {
+        const message = String(latestDailyLimit?.message || "Ya alcanzaste el límite diario para este establecimiento.")
+        setAuthStatus(message)
+        setReviewTx((prev) => ({
+          ...prev,
+          step: "error",
+          message,
+        }))
+        return
+      }
 
       const titleWords = countWords(reviewForm.title)
       if (!reviewForm.title.trim()) {
@@ -2512,6 +2644,13 @@ function App() {
         .split(",")
         .map((tag) => tag.trim())
         .filter(Boolean)
+      const maxReviewTags = Number(pointsConfig.max_review_tags || DEFAULT_MAX_REVIEW_TAGS)
+      if (maxReviewTags > 0 && tags.length > maxReviewTags) {
+        const message = `Puedes agregar máximo ${maxReviewTags} tags por review.`
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
 
       const body = {
         user_id: userId,
@@ -2696,6 +2835,22 @@ function App() {
 
   useEffect(() => {
     if (activePage !== "review") return
+    if (!reviewForm.establishment_id) {
+      setDailyLimitStatus((prev) => ({
+        ...prev,
+        loading: false,
+        canReviewToday: true,
+        reviewsToday: 0,
+        message: "",
+        error: "",
+      }))
+      return
+    }
+    fetchDailyReviewLimitStatus(reviewForm.establishment_id)
+  }, [activePage, token, reviewForm.establishment_id])
+
+  useEffect(() => {
+    if (activePage !== "review") return
     if (!hasSelectedCategory) {
       if (reviewWizardStep !== 1) setReviewWizardStep(1)
       return
@@ -2733,7 +2888,7 @@ function App() {
     if (activePage === "admin-users") {
       fetchAdminUsers()
     }
-    if (activePage === "admin-points") {
+    if (activePage === "admin-config") {
       fetchPointsConfig()
     }
   }, [activePage, isAdmin])
@@ -3140,12 +3295,17 @@ function App() {
                       disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
                     >
                       <option value="">Selecciona un rubro</option>
-                      {ESTABLISHMENT_CATEGORIES.map((category) => (
+                      {categoryOptions.map((category) => (
                         <option key={category} value={category}>
                           {category}
                         </option>
                       ))}
                     </select>
+                    {establishmentCategory === "Others" && (
+                      <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                        Modo global: se buscará cualquier tipo de establecimiento.
+                      </div>
+                    )}
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
                       <button type="button" className="primary-button" onClick={() => goToNextWizardStep(1, 2)}>
                         Siguiente
@@ -3162,7 +3322,7 @@ function App() {
                     <>
                         <div className="map-search-box">
                           <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                            Busca por dirección o nombre y selecciona un resultado:
+                            Busca por dirección o nombre. Verás resultados del mapa y también establecimientos guardados en la base de datos.
                           </div>
                           <div className="map-search-row">
                             <input
@@ -3219,6 +3379,21 @@ function App() {
                             <div className="selected-establishment-status">
                               Establecimiento seleccionado
                             </div>
+                            <div style={{ fontSize: "12px", color: dailyLimitStatus.canReviewToday ? "#6b7280" : "#b91c1c" }}>
+                              {dailyLimitStatus.loading
+                                ? "Validando límite diario..."
+                                : `Regla: máximo ${Number(dailyLimitStatus.maxPerDay || pointsConfig.max_reviews_per_establishment_per_day || 1)} review por día para este establecimiento.`}
+                            </div>
+                            {!dailyLimitStatus.loading && dailyLimitStatus.message && (
+                              <div style={{ fontSize: "12px", color: dailyLimitStatus.canReviewToday ? "#166534" : "#b91c1c" }}>
+                                {dailyLimitStatus.message}
+                              </div>
+                            )}
+                            {dailyLimitStatus.error && (
+                              <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                                {dailyLimitStatus.error}
+                              </div>
+                            )}
                             <div style={{ display: "grid", gap: "4px" }}>
                               {locationSearch.selected?.source === "geolocation" ? (
                                 <div style={{ display: "grid", gap: "6px" }}>
@@ -3372,6 +3547,8 @@ function App() {
                                   !locationSearch.selected ||
                                   !String(locationSearch.selected?.name || "").trim() ||
                                   locationSearch.resolving ||
+                                  dailyLimitStatus.loading ||
+                                  !dailyLimitStatus.canReviewToday ||
                                   (imageSourceMode === "upload" && !imageSuggestions.selected)
                                 }
                               >
@@ -3587,7 +3764,10 @@ function App() {
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Usa tags separadas por comas (ej.: delivery, atención, calidad).
+                          Usa tags separadas por comas (ej.: delivery, atención, calidad). Máximo {maxReviewTags}.
+                        </div>
+                        <div style={{ marginBottom: "6px", fontSize: "12px", color: parsedReviewTags.length > maxReviewTags ? "#b91c1c" : "#6b7280" }}>
+                          {parsedReviewTags.length}/{maxReviewTags} tags
                         </div>
                         <input
                           className="input"
@@ -3597,11 +3777,21 @@ function App() {
                             setReviewForm({ ...reviewForm, tags: event.target.value })
                           }
                         />
+                        {parsedReviewTags.length > maxReviewTags && (
+                          <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                            Excediste el máximo de {maxReviewTags} tags.
+                          </div>
+                        )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(7)}>
                             Atrás
                           </button>
-                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(9)}>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={() => setReviewWizardStep(9)}
+                            disabled={parsedReviewTags.length > maxReviewTags}
+                          >
                             Siguiente
                           </button>
                         </div>
@@ -3856,6 +4046,9 @@ function App() {
                 <span className="pill">Profile</span>
               </div>
               <div className="input-group">
+                <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                  Completar perfil es opcional. El único dato obligatorio del usuario es su wallet address.
+                </div>
                 <input
                   className="input"
                   placeholder="Name"
@@ -4193,7 +4386,7 @@ function App() {
           </div>
         )}
 
-        {activePage === "admin-points" && isAdmin && (
+        {activePage === "admin-config" && isAdmin && (
           <div className="grid">
             <section className="panel" style={{ gridColumn: "1 / 2" }}>
               <div className="panel-header">
@@ -4272,6 +4465,57 @@ function App() {
                   <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>
                     Estándar recomendado: logo cuadrado {WALLET_LOGO_STANDARD_SIZE}x{WALLET_LOGO_STANDARD_SIZE}px, entrada máxima 1MB.
                   </p>
+                  <label style={{ fontWeight: 600, marginTop: "10px" }}>Reglas de negocio</label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    placeholder="max_reviews_per_establishment_per_day"
+                    value={pointsConfig.max_reviews_per_establishment_per_day}
+                    onChange={(event) =>
+                      setPointsConfig({ ...pointsConfig, max_reviews_per_establishment_per_day: event.target.value })
+                    }
+                  />
+                  <input
+                    className="input"
+                    type="number"
+                    min="1"
+                    placeholder="max_review_tags"
+                    value={pointsConfig.max_review_tags}
+                    onChange={(event) =>
+                      setPointsConfig({ ...pointsConfig, max_review_tags: event.target.value })
+                    }
+                  />
+                  <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(pointsConfig.search_saved_establishments_enabled)}
+                      onChange={(event) =>
+                        setPointsConfig({ ...pointsConfig, search_saved_establishments_enabled: event.target.checked })
+                      }
+                    />
+                    Buscar establecimientos guardados en DB junto con mapa
+                  </label>
+                  <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(pointsConfig.allow_global_category_search)}
+                      onChange={(event) =>
+                        setPointsConfig({ ...pointsConfig, allow_global_category_search: event.target.checked })
+                      }
+                    />
+                    Habilitar rubro Others (búsqueda global)
+                  </label>
+                  <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(pointsConfig.require_profile_completion)}
+                      onChange={(event) =>
+                        setPointsConfig({ ...pointsConfig, require_profile_completion: event.target.checked })
+                      }
+                    />
+                    Requerir completar nombre y avatar en perfil
+                  </label>
                   <label style={{ fontWeight: 600, marginTop: "10px" }}>Configuración de puntos por review</label>
                   <input
                     className="input"

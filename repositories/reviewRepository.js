@@ -204,6 +204,24 @@ async function findLatestByUserId(dbClient, userId) {
   return result.rows[0] || null;
 }
 
+async function countByUserAndEstablishmentBetween(dbClient, {
+  userId,
+  establishmentId,
+  startAt,
+  endAt,
+}) {
+  const result = await dbClient.query(
+    `SELECT COUNT(*)::int AS total
+     FROM reviews
+     WHERE user_id = $1
+       AND establishment_id = $2
+       AND created_at >= $3
+       AND created_at < $4`,
+    [userId, establishmentId, startAt, endAt]
+  );
+  return result.rows[0]?.total || 0;
+}
+
 module.exports = {
   createReview,
   findById,
@@ -212,4 +230,5 @@ module.exports = {
   listReviews,
   countByUserId,
   findLatestByUserId,
+  countByUserAndEstablishmentBetween,
 };

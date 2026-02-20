@@ -23,6 +23,11 @@ async function setDefaultUserAvatar(defaultUserAvatarUrl) {
     metamask_wallet_logo_url: null,
     pali_wallet_logo_url: null,
     other_wallet_logo_url: null,
+    max_reviews_per_establishment_per_day: 1,
+    max_review_tags: 5,
+    search_saved_establishments_enabled: true,
+    allow_global_category_search: true,
+    require_profile_completion: false,
   };
 
   return updateConfig(
@@ -40,6 +45,11 @@ async function setDefaultUserAvatar(defaultUserAvatarUrl) {
       metamask_wallet_logo_url: base.metamask_wallet_logo_url || null,
       pali_wallet_logo_url: base.pali_wallet_logo_url || null,
       other_wallet_logo_url: base.other_wallet_logo_url || null,
+      max_reviews_per_establishment_per_day: Number(base.max_reviews_per_establishment_per_day ?? 1),
+      max_review_tags: Number(base.max_review_tags ?? 5),
+      search_saved_establishments_enabled: Boolean(base.search_saved_establishments_enabled ?? true),
+      allow_global_category_search: Boolean(base.allow_global_category_search ?? true),
+      require_profile_completion: Boolean(base.require_profile_completion ?? false),
     }
   );
 }
@@ -59,6 +69,11 @@ async function setWalletLogo(walletKey, walletLogoUrl) {
     metamask_wallet_logo_url: null,
     pali_wallet_logo_url: null,
     other_wallet_logo_url: null,
+    max_reviews_per_establishment_per_day: 1,
+    max_review_tags: 5,
+    search_saved_establishments_enabled: true,
+    allow_global_category_search: true,
+    require_profile_completion: false,
   };
 
   return updateConfig(
@@ -76,6 +91,11 @@ async function setWalletLogo(walletKey, walletLogoUrl) {
       metamask_wallet_logo_url: walletKey === 'metamask' ? walletLogoUrl : (base.metamask_wallet_logo_url || null),
       pali_wallet_logo_url: walletKey === 'pali' ? walletLogoUrl : (base.pali_wallet_logo_url || null),
       other_wallet_logo_url: walletKey === 'other' ? walletLogoUrl : (base.other_wallet_logo_url || null),
+      max_reviews_per_establishment_per_day: Number(base.max_reviews_per_establishment_per_day ?? 1),
+      max_review_tags: Number(base.max_review_tags ?? 5),
+      search_saved_establishments_enabled: Boolean(base.search_saved_establishments_enabled ?? true),
+      allow_global_category_search: Boolean(base.allow_global_category_search ?? true),
+      require_profile_completion: Boolean(base.require_profile_completion ?? false),
     }
   );
 }

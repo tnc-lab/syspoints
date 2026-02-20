@@ -15,27 +15,22 @@ async function createUser(req, res, next) {
   try {
     const { wallet_address, email, name, avatar_url } = req.body || {};
 
-    if (!isNonEmptyString(name)) {
-      throw new ApiError(400, 'name is required');
-    }
-
-    if (!isNonEmptyString(avatar_url) || !isValidUrl(avatar_url)) {
-      throw new ApiError(400, 'avatar_url must be a valid URL');
-    }
-
-    if (!isNonEmptyString(wallet_address) && !isNonEmptyString(email)) {
-      throw new ApiError(400, 'wallet_address or email is required');
+    if (!isNonEmptyString(wallet_address)) {
+      throw new ApiError(400, 'wallet_address is required');
     }
 
     if (isNonEmptyString(email) && !isValidEmail(email)) {
       throw new ApiError(400, 'email is invalid');
     }
+    if (avatar_url != null && avatar_url !== '' && !isValidUrl(avatar_url)) {
+      throw new ApiError(400, 'avatar_url must be a valid URL when provided');
+    }
 
     const user = await userService.createUser({
       wallet_address,
-      email,
-      name,
-      avatar_url,
+      email: isNonEmptyString(email) ? email : null,
+      name: isNonEmptyString(name) ? name.trim() : null,
+      avatar_url: isNonEmptyString(avatar_url) ? avatar_url.trim() : null,
     });
 
     res.status(201).json(user);
@@ -79,23 +74,17 @@ async function updateMe(req, res, next) {
     }
 
     const { name, email, avatar_url } = req.body || {};
-
-    if (!isNonEmptyString(name)) {
-      throw new ApiError(400, 'name is required');
-    }
-
-    if (!isNonEmptyString(avatar_url) || !isValidUrl(avatar_url)) {
-      throw new ApiError(400, 'avatar_url must be a valid URL');
-    }
-
     if (email && !isValidEmail(email)) {
       throw new ApiError(400, 'email is invalid');
     }
+    if (avatar_url != null && avatar_url !== '' && !isValidUrl(avatar_url)) {
+      throw new ApiError(400, 'avatar_url must be a valid URL when provided');
+    }
 
     const updatedUser = await userService.updateUserProfile(userId, {
-      name,
-      email: email || null,
-      avatar_url,
+      name: isNonEmptyString(name) ? name.trim() : null,
+      email: isNonEmptyString(email) ? email.trim() : null,
+      avatar_url: isNonEmptyString(avatar_url) ? avatar_url.trim() : null,
     });
 
     res.status(200).json(updatedUser);

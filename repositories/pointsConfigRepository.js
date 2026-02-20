@@ -12,7 +12,12 @@ async function getCurrentConfig(dbClient) {
       default_user_avatar_url,
       metamask_wallet_logo_url,
       pali_wallet_logo_url,
-      other_wallet_logo_url
+      other_wallet_logo_url,
+      max_reviews_per_establishment_per_day,
+      max_review_tags,
+      search_saved_establishments_enabled,
+      allow_global_category_search,
+      require_profile_completion
      FROM points_config
      ORDER BY created_at DESC
      LIMIT 1`
@@ -35,8 +40,13 @@ async function updateConfig(dbClient, payload) {
       default_user_avatar_url,
       metamask_wallet_logo_url,
       pali_wallet_logo_url,
-      other_wallet_logo_url
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      other_wallet_logo_url,
+      max_reviews_per_establishment_per_day,
+      max_review_tags,
+      search_saved_establishments_enabled,
+      allow_global_category_search,
+      require_profile_completion
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING
       image_points_yes,
       image_points_no,
@@ -49,7 +59,12 @@ async function updateConfig(dbClient, payload) {
       default_user_avatar_url,
       metamask_wallet_logo_url,
       pali_wallet_logo_url,
-      other_wallet_logo_url`,
+      other_wallet_logo_url,
+      max_reviews_per_establishment_per_day,
+      max_review_tags,
+      search_saved_establishments_enabled,
+      allow_global_category_search,
+      require_profile_completion`,
     [
       payload.image_points_yes,
       payload.image_points_no,
@@ -63,6 +78,11 @@ async function updateConfig(dbClient, payload) {
       payload.metamask_wallet_logo_url || null,
       payload.pali_wallet_logo_url || null,
       payload.other_wallet_logo_url || null,
+      payload.max_reviews_per_establishment_per_day,
+      payload.max_review_tags,
+      Boolean(payload.search_saved_establishments_enabled),
+      Boolean(payload.allow_global_category_search),
+      Boolean(payload.require_profile_completion),
     ]
   );
 
