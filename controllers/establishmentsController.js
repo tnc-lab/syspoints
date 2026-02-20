@@ -213,7 +213,7 @@ async function resolveEstablishmentFromLocation(req, res, next) {
 
 async function searchLocation(req, res, next) {
   try {
-    const { query, limit } = req.body || {};
+    const { query, limit, category } = req.body || {};
     if (!isNonEmptyString(query)) {
       throw new ApiError(400, 'query is required');
     }
@@ -226,6 +226,7 @@ async function searchLocation(req, res, next) {
     const places = await establishmentService.searchLocation({
       queryText: query.trim(),
       maxResults,
+      category: isNonEmptyString(category) ? String(category).trim() : null,
     });
     res.status(200).json({ data: places });
   } catch (err) {

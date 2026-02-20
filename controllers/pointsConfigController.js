@@ -13,6 +13,13 @@ const FIELDS = [
   'stars_points_no',
   'price_points_lt_100',
   'price_points_gte_100',
+  'max_reviews_per_establishment_per_day',
+  'max_review_tags',
+];
+const BOOLEAN_FIELDS = [
+  'search_saved_establishments_enabled',
+  'allow_global_category_search',
+  'require_profile_completion',
 ];
 
 const ALLOWED_IMAGE_MIME = {
@@ -29,6 +36,17 @@ function validatePayload(payload) {
     if (!Number.isInteger(payload[field])) {
       return `${field} must be an integer`;
     }
+  }
+  for (const field of BOOLEAN_FIELDS) {
+    if (typeof payload[field] !== 'boolean') {
+      return `${field} must be a boolean`;
+    }
+  }
+  if (payload.max_reviews_per_establishment_per_day < 0) {
+    return 'max_reviews_per_establishment_per_day must be >= 0';
+  }
+  if (payload.max_review_tags < 1) {
+    return 'max_review_tags must be >= 1';
   }
   if (
     payload.default_user_avatar_url != null &&

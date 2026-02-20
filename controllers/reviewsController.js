@@ -316,6 +316,28 @@ async function listReviews(req, res, next) {
   }
 }
 
+async function getDailyReviewLimitStatus(req, res, next) {
+  try {
+    const userId = req.auth?.sub;
+    if (!isValidUuid(userId)) {
+      throw new ApiError(401, 'invalid token');
+    }
+
+    const establishmentId = String(req.query.establishment_id || '').trim();
+    if (!isValidUuid(establishmentId)) {
+      throw new ApiError(400, 'establishment_id must be a UUID');
+    }
+
+    const result = await reviewService.getDailyReviewLimitStatus({
+      userId,
+      establishmentId,
+    });
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   createReview,
   getReviewById,
@@ -323,4 +345,5 @@ module.exports = {
   uploadReviewEvidenceImage,
   saveReviewAnchorTx,
   getReviewCaptchaChallenge,
+  getDailyReviewLimitStatus,
 };
