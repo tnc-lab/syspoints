@@ -316,6 +316,12 @@ const getWalletErrorMessage = (error, fallback = "Wallet connection failed.") =>
   ) {
     return "Firma cancelada en la wallet."
   }
+  if (combined.includes("insufficient funds")) {
+    return "Fondos insuficientes para pagar gas. La reseña no fue guardada."
+  }
+  if (combined.includes("replacement transaction underpriced")) {
+    return "La transacción fue rechazada por fee insuficiente. La reseña no fue guardada."
+  }
 
   if (error?.code === -32002) return "Wallet request already pending. Open your wallet extension."
   if (error?.code === 4100) return "Wallet access not authorized. Approve this dApp in your wallet."
@@ -423,6 +429,7 @@ function App() {
   const [connectedWalletLabel, setConnectedWalletLabel] = useState(() => localStorage.getItem("syspoints_wallet_label") || "")
   const [walletNetworkLabel, setWalletNetworkLabel] = useState("")
   const [authStatus, setAuthStatus] = useState("")
+  const [authStatusVisible, setAuthStatusVisible] = useState(false)
   const [profileStatus, setProfileStatus] = useState("")
   const [profileBusy, setProfileBusy] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -450,6 +457,8 @@ function App() {
   const [, setWalletProviderScanTick] = useState(0)
   const [activePage, setActivePage] = useState("reviews")
   const activeWalletProviderRef = useRef(null)
+  const activeReviewSubmissionIdRef = useRef(null)
+  const cancelledReviewSubmissionIdsRef = useRef(new Set())
 
   const [profile, setProfile] = useState({
     name: "",
@@ -1061,9 +1070,54 @@ function App() {
   }
 
   const closeReviewTxModal = () => {
-    if (reviewTx.step === "pending" || reviewTx.step === "signing") return
     setTxModalVisible(false)
     setTimeout(() => setShowTxModal(false), 200)
+  }
+
+  const resetReviewDraft = ({ resetCategory = true } = {}) => {
+    setReviewForm({
+      establishment_id: "",
+      title: "",
+      description: "",
+      stars: 0,
+      price: "",
+      purchase_url: "",
+      tags: "",
+      evidence_images: [],
+    })
+    setLocationSearch({
+      query: "",
+      loading: false,
+      error: "",
+      results: [],
+      selected: null,
+      resolvedId: "",
+      resolving: false,
+      geolocating: false,
+      mapCenter: { ...DEFAULT_MAP_VIEW },
+    })
+    setImageSuggestions({
+      loading: false,
+      error: "",
+      items: [],
+      selected: "",
+    })
+    setReviewCaptcha({
+      loading: false,
+      requiresCaptcha: false,
+      challenge: "",
+      token: "",
+      expiresAt: "",
+      answer: "",
+      error: "",
+    })
+    setImageSourceMode("existing")
+    setReviewSubmissionState({ key: "", signature: "" })
+    setReviewWizardStatus("")
+    setReviewWizardStep(1)
+    if (resetCategory) {
+      setEstablishmentCategory("")
+    }
   }
 
   const detectProvider = () => {
@@ -1127,6 +1181,56 @@ function App() {
       return crypto.randomUUID()
     }
     return `review-${Date.now()}-${Math.random().toString(16).slice(2)}`
+  }
+
+  const createClientReviewId = () => {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID()
+    }
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (char) => {
+      const random = Math.floor(Math.random() * 16)
+      const value = char === "x" ? random : ((random & 0x3) | 0x8)
+      return value.toString(16)
+    })
+  }
+
+  const isUserCancelledPayment = (error) => {
+    const code = String(error?.code || "")
+    const nestedCode = String(error?.info?.error?.code || "")
+    const message = String(error?.message || "")
+    const nestedMessage = String(error?.info?.error?.message || "")
+    const combined = `${message} ${nestedMessage}`.toLowerCase()
+
+    return (
+      code === "4001" ||
+      nestedCode === "4001" ||
+      code === "ACTION_REJECTED" ||
+      combined.includes("user rejected") ||
+      combined.includes("rejected") ||
+      combined.includes("cancel")
+    )
+  }
+
+  const isReviewSubmissionCancelled = (submissionId) =>
+    Boolean(submissionId && cancelledReviewSubmissionIdsRef.current.has(submissionId))
+
+  const cancelActiveReviewSubmission = () => {
+    const activeId = activeReviewSubmissionIdRef.current
+    if (activeId) {
+      cancelledReviewSubmissionIdsRef.current.add(activeId)
+      activeReviewSubmissionIdRef.current = null
+    }
+    setSubmittingReview(false)
+    setReviewTx({
+      step: "idle",
+      message: "",
+      points: 0,
+      txHash: "",
+      explorerUrl: "",
+    })
+    resetReviewDraft({ resetCategory: true })
+    closeReviewTxModal()
+    setAuthStatus("Transacción cancelada. Formulario reiniciado.")
   }
 
   const ensureSufficientAnchorFunds = async ({ provider, address, establishmentId }) => {
@@ -2313,8 +2417,12 @@ function App() {
     }
 
     setSubmittingReview(true)
+    const submissionId = createClientIdempotencyKey()
+    activeReviewSubmissionIdRef.current = submissionId
+    cancelledReviewSubmissionIdsRef.current.delete(submissionId)
     if (!token) {
       setAuthStatus("Sign in with your wallet before posting a review.")
+      activeReviewSubmissionIdRef.current = null
       setSubmittingReview(false)
       return
     }
@@ -2429,7 +2537,63 @@ function App() {
         establishmentId: reviewForm.establishment_id,
       })
 
-      const requestSignature = JSON.stringify(body)
+      const signer = await provider.getSigner()
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer)
+      const reviewId = createClientReviewId()
+      const reviewTimestamp = new Date().toISOString()
+      const reviewHash = ethers.solidityPackedKeccak256(
+        ["string", "string", "string", "string", "string"],
+        [
+          String(reviewId),
+          String(body.user_id),
+          String(body.establishment_id),
+          String(reviewTimestamp),
+          String(body.price),
+        ]
+      )
+      const establishmentHash = ethers.solidityPackedKeccak256(
+        ["string"],
+        [String(reviewForm.establishment_id)]
+      )
+
+      setReviewTx((prev) => ({
+        ...prev,
+        step: "signing",
+        message: "Confirm the transaction in your wallet to anchor this review on-chain.",
+      }))
+
+      const tx = await contract.anchorReview(walletAddress, reviewHash, establishmentHash)
+      if (isReviewSubmissionCancelled(submissionId)) {
+        throw new Error("Review submission cancelled by user.")
+      }
+      const txHash = tx?.hash || ""
+      const explorerBase = String(EXPLORER_TX_BASE_URL || "").replace(/\/+$/, "")
+      const explorerUrl = txHash && explorerBase ? `${explorerBase}/${txHash}` : ""
+      setReviewTx((prev) => ({
+        ...prev,
+        step: "pending",
+        txHash,
+        explorerUrl,
+        points: 0,
+        message: "Transaction submitted. Waiting for confirmation...",
+      }))
+
+      const receipt = await tx.wait()
+      if (isReviewSubmissionCancelled(submissionId)) {
+        throw new Error("Review submission cancelled by user.")
+      }
+      if (!receipt || Number(receipt.status) !== 1) {
+        throw new Error("La transacción no fue confirmada en success. No se guardó la reseña.")
+      }
+
+      const payloadToPersist = {
+        ...body,
+        review_id: reviewId,
+        review_hash: reviewHash,
+        review_timestamp: reviewTimestamp,
+        tx_hash: txHash,
+      }
+      const requestSignature = JSON.stringify(payloadToPersist)
       let idempotencyKey = reviewSubmissionState.key
       if (!idempotencyKey || reviewSubmissionState.signature !== requestSignature) {
         idempotencyKey = createClientIdempotencyKey()
@@ -2441,128 +2605,40 @@ function App() {
         headers: {
           "Idempotency-Key": idempotencyKey,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(payloadToPersist),
       })
-
-      const reviewId = created.id
-      const pointsAwarded = Number(created?.points_awarded ?? 0)
-
-      // On-chain anchoring (user pays gas)
-      if (reviewId) {
-        const signer = await provider.getSigner()
-        const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer)
-        setReviewTx((prev) => ({
-          ...prev,
-          step: "signing",
-          message: "Confirm the transaction in your wallet to anchor this review on-chain.",
-        }))
-
-        const reviewHash = String(created?.review_hash || "")
-        if (!ethers.isHexString(reviewHash, 32)) {
-          throw new Error("Invalid review hash returned by backend.")
-        }
-
-        const establishmentHash = ethers.solidityPackedKeccak256(
-          ["string"],
-          [String(reviewForm.establishment_id)]
-        )
-
-        const tx = await contract.anchorReview(walletAddress, reviewHash, establishmentHash)
-        const txHash = tx?.hash || ""
-        const explorerBase = String(EXPLORER_TX_BASE_URL || "").replace(/\/+$/, "")
-        const explorerUrl = txHash && explorerBase ? `${explorerBase}/${txHash}` : ""
-        setReviewTx((prev) => ({
-          ...prev,
-          step: "pending",
-          txHash,
-          explorerUrl,
-          points: pointsAwarded,
-          message: "Transaction submitted. Waiting for confirmation...",
-        }))
-
-        const receipt = await tx.wait()
-        let blockTimestampIso = null
-        if (receipt?.blockNumber != null) {
-          try {
-            const block = await provider.getBlock(receipt.blockNumber)
-            if (block?.timestamp) {
-              blockTimestampIso = new Date(Number(block.timestamp) * 1000).toISOString()
-            }
-          } catch {
-            blockTimestampIso = null
-          }
-        }
-
-        try {
-          await apiFetch(`/reviews/${reviewId}/anchor-tx`, {
-            method: "POST",
-            body: JSON.stringify({
-              tx_hash: txHash,
-              chain_id: Number(CHAIN_ID) || null,
-              block_number: receipt?.blockNumber ?? null,
-              block_timestamp: blockTimestampIso,
-            }),
-          })
-        } catch {
-          // keep UX successful even if metadata persistence fails
-        }
-
-        setReviewTx((prev) => ({
-          ...prev,
-          step: "success",
-          txHash,
-          explorerUrl,
-          points: pointsAwarded,
-          message: "Review anchored successfully on-chain.",
-        }))
-      } else {
-        setReviewTx((prev) => ({
-          ...prev,
-          step: "success",
-          points: pointsAwarded,
-          message: "Review submitted successfully.",
-        }))
+      if (isReviewSubmissionCancelled(submissionId)) {
+        throw new Error("Review submission cancelled by user.")
       }
 
-      setReviewForm({
-        establishment_id: "",
-        title: "",
-        description: "",
-        stars: 0,
-        price: "",
-        purchase_url: "",
-        tags: "",
-        evidence_images: [],
-      })
-      setLocationSearch({
-        query: "",
-        loading: false,
-        error: "",
-        results: [],
-        selected: null,
-        resolvedId: "",
-        resolving: false,
-        geolocating: false,
-        mapCenter: { ...DEFAULT_MAP_VIEW },
-      })
-      setImageSuggestions({
-        loading: false,
-        error: "",
-        items: [],
-        selected: "",
-      })
-      setImageSourceMode("existing")
-      setEstablishmentCategory("")
-      setReviewSubmissionState({ key: "", signature: "" })
+      const pointsAwarded = Number(created?.points_awarded ?? 0)
+      setReviewTx((prev) => ({
+        ...prev,
+        step: "success",
+        txHash,
+        explorerUrl,
+        points: pointsAwarded,
+        message: "Review anchored and persisted successfully.",
+      }))
+
+      resetReviewDraft({ resetCategory: true })
       setAuthStatus(REVIEW_SUCCESS_MESSAGE)
       fetchReviews(1)
       fetchLeaderboard(leaderMeta.page)
       setActivePage("reviews")
     } catch (error) {
+      if (isReviewSubmissionCancelled(submissionId)) {
+        return
+      }
+      const userCancelled = isUserCancelledPayment(error)
       const message = getWalletErrorMessage(error, "Failed to submit review.")
       if (/invalid captcha|captcha_token and captcha_answer are required/i.test(message)) {
         await fetchReviewCaptchaChallenge()
         setReviewWizardStep(9)
+      }
+      if (userCancelled) {
+        resetReviewDraft({ resetCategory: true })
+        closeReviewTxModal()
       }
       setAuthStatus(message)
       setReviewTx((prev) => ({
@@ -2571,6 +2647,10 @@ function App() {
         message,
       }))
     } finally {
+      cancelledReviewSubmissionIdsRef.current.delete(submissionId)
+      if (activeReviewSubmissionIdRef.current === submissionId) {
+        activeReviewSubmissionIdRef.current = null
+      }
       setSubmittingReview(false)
     }
   }
@@ -2595,11 +2675,19 @@ function App() {
   }, [activePage, token])
 
   useEffect(() => {
-    if (activePage !== "review") return
-    if (authStatus === REVIEW_SUCCESS_MESSAGE) {
+    if (!authStatus) return
+    setAuthStatusVisible(true)
+    const hideTimer = setTimeout(() => {
+      setAuthStatusVisible(false)
+    }, 4200)
+    const clearTimer = setTimeout(() => {
       setAuthStatus("")
+    }, 4500)
+    return () => {
+      clearTimeout(hideTimer)
+      clearTimeout(clearTimer)
     }
-  }, [activePage, authStatus])
+  }, [authStatus])
 
   useEffect(() => {
     if (activePage !== "review") return
@@ -2664,6 +2752,13 @@ function App() {
         onWalletAction={handleWalletAction}
         onNavigate={setActivePage}
       />
+      {authStatus && (
+        <div className="status-banner-wrap">
+          <div className={`status-banner ${authStatusVisible ? "show" : ""} ${/error|failed|insuficiente|rechaz|cancel|invalid|missing|wrong|no se pudo/i.test(authStatus) ? "error" : "ok"}`}>
+            {authStatus}
+          </div>
+        </div>
+      )}
 
       <WalletModal
         isOpen={showWalletModal}
@@ -2679,7 +2774,16 @@ function App() {
       />
 
       {showTxModal && (
-        <div className={`modal-overlay ${txModalVisible ? "show" : ""}`} onClick={closeReviewTxModal}>
+        <div
+          className={`modal-overlay ${txModalVisible ? "show" : ""}`}
+          onClick={() => {
+            if (reviewTx.step === "signing" || reviewTx.step === "pending") {
+              cancelActiveReviewSubmission()
+              return
+            }
+            closeReviewTxModal()
+          }}
+        >
           <div className={`modal-card ${txModalVisible ? "show" : ""}`} onClick={(event) => event.stopPropagation()}>
             <h3>Transaction status</h3>
             <div className="tx-status">
@@ -2710,10 +2814,15 @@ function App() {
             <button
               className="ghost-button"
               style={{ marginTop: "16px" }}
-              onClick={closeReviewTxModal}
-              disabled={reviewTx.step === "pending" || reviewTx.step === "signing"}
+              onClick={() => {
+                if (reviewTx.step === "signing" || reviewTx.step === "pending") {
+                  cancelActiveReviewSubmission()
+                  return
+                }
+                closeReviewTxModal()
+              }}
             >
-              {reviewTx.step === "pending" || reviewTx.step === "signing" ? "Waiting confirmation..." : "Close"}
+              {reviewTx.step === "signing" || reviewTx.step === "pending" ? "Cancel" : "Close"}
             </button>
           </div>
         </div>
@@ -3612,11 +3721,6 @@ function App() {
                     ? "Submitting..."
                     : "Submit review"}
                 </button>
-              )}
-              {authStatus && (
-                <div style={{ marginTop: "12px", color: "#e85151" }}>
-                  {authStatus}
-                </div>
               )}
             </section>
           </div>

@@ -1,4 +1,3 @@
-const crypto = require('crypto');
 const { withTransaction, query } = require('../db');
 const {
   createReview,
@@ -12,7 +11,7 @@ const {
 const { findById: findUserById } = require('../repositories/userRepository');
 const { createEvidenceBatch } = require('../repositories/reviewEvidenceRepository');
 const { establishmentService } = require('./establishmentService');
-const { submitReviewHashAsync } = require('./syscoinService');
+const { verifyAnchoredReviewTx } = require('./syscoinService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { hashReviewPayload } = require('../utils/hash');
 const { getCurrentConfig } = require('../repositories/pointsConfigRepository');
@@ -62,6 +61,10 @@ function formatReviewResponse(reviewRow, evidenceImages) {
 }
 
 async function createReviewService({
+  review_id,
+  review_hash,
+  review_timestamp,
+  tx_hash,
   user_id,
   establishment_id,
   title,
@@ -73,6 +76,20 @@ async function createReviewService({
   evidence_images,
   idempotencyKey,
 }) {
+  if (!/^[0-9a-fA-F-]{36}$/.test(String(review_id || ''))) {
+    throw new ApiError(400, 'review_id must be a UUID');
+  }
+  if (!/^0x[a-fA-F0-9]{64}$/.test(String(review_hash || ''))) {
+    throw new ApiError(400, 'review_hash must be a 32-byte hex string');
+  }
+  if (!/^0x[a-fA-F0-9]{64}$/.test(String(tx_hash || ''))) {
+    throw new ApiError(400, 'tx_hash must be a valid transaction hash');
+  }
+  const parsedReviewTimestamp = new Date(review_timestamp);
+  if (!review_timestamp || Number.isNaN(parsedReviewTimestamp.getTime())) {
+    throw new ApiError(400, 'review_timestamp must be a valid datetime');
+  }
+
   if (idempotencyKey) {
     const cacheKey = `${user_id}:${idempotencyKey}`;
     const cached = idempotencyCache.get(cacheKey);
@@ -87,7 +104,35 @@ async function createReviewService({
     throw new ApiError(404, 'establishment not found');
   }
 
-  const reviewId = crypto.randomUUID();
+  const reviewId = review_id;
+  const user = await findUserById(user_id);
+  if (!user || !user.wallet_address) {
+    throw new ApiError(400, 'user wallet address is required to verify on-chain payment');
+  }
+
+  const expectedReviewHash = hashReviewPayload({
+    review_id: reviewId,
+    user_id,
+    establishment_id,
+    timestamp: parsedReviewTimestamp.toISOString(),
+    price,
+  });
+
+  if (expectedReviewHash.toLowerCase() !== String(review_hash).toLowerCase()) {
+    throw new ApiError(400, 'review_hash does not match the provided review payload');
+  }
+
+  const txVerification = await verifyAnchoredReviewTx({
+    txHash: tx_hash,
+    expectedUserWallet: user.wallet_address,
+    expectedReviewHash: review_hash,
+    expectedEstablishmentId: establishment_id,
+  });
+
+  if (!txVerification.ok) {
+    throw new ApiError(400, `transaction verification failed: ${txVerification.reason}`);
+  }
+
   const config = await getCurrentConfig({ query });
   if (!config) {
     throw new ApiError(500, 'points configuration missing');
@@ -104,11 +149,11 @@ async function createReviewService({
     review_id: reviewId,
     user_id,
     establishment_id,
-    timestamp: new Date().toISOString(),
+    timestamp: parsedReviewTimestamp.toISOString(),
     price,
   };
 
-  const review_hash = hashReviewPayload(hashPayload);
+  const computedReviewHash = hashReviewPayload(hashPayload);
 
   const evidencePayload = evidence_images.map((url) => ({
     image_url: url,
@@ -129,7 +174,7 @@ async function createReviewService({
         purchase_url,
         tags,
         points_awarded,
-        review_hash,
+        review_hash: computedReviewHash,
       });
 
       await createEvidenceBatch(client, {
@@ -137,10 +182,24 @@ async function createReviewService({
         evidence: evidencePayload,
       });
 
+      await upsertReviewAnchor(client, {
+        review_id: reviewId,
+        tx_hash,
+        chain_id: txVerification.chainId,
+        block_number: txVerification.blockNumber,
+        block_timestamp: txVerification.blockTimestamp,
+      });
+
       return formatReviewResponse(reviewRow, evidence_images);
     });
   } catch (err) {
     if (err.code === '23505') {
+      if (String(err.constraint || '').includes('review_anchors_tx_hash_key')) {
+        throw new ApiError(409, 'tx_hash already linked to another review');
+      }
+      if (String(err.constraint || '').includes('reviews_pkey')) {
+        throw new ApiError(409, 'review_id already exists');
+      }
       throw new ApiError(409, 'review_hash already exists');
     }
     if (err.code === '23502' || err.code === '23514') {
@@ -153,11 +212,6 @@ async function createReviewService({
     const cacheKey = `${user_id}:${idempotencyKey}`;
     idempotencyCache.set(cacheKey, response);
     await saveResponse({ query }, user_id, idempotencyKey, response);
-  }
-
-  const user = await findUserById(user_id);
-  if (user && user.wallet_address) {
-    submitReviewHashAsync(user.wallet_address, establishment_id, response.review_hash);
   }
 
   return response;

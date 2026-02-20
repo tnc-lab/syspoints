@@ -1,4 +1,4 @@
-const { createSigner, getSyscoinConfig } = require('../config/syscoin');
+const { createProvider, createSigner, getSyscoinConfig } = require('../config/syscoin');
 const { query } = require('../db');
 const { findCoreById } = require('../repositories/reviewRepository');
 const { hashReviewPayload, hashEstablishmentId } = require('../utils/hash');
@@ -13,10 +13,15 @@ const SYSPPOINTS_ABI = [
 function createContract() {
   const signer = createSigner();
   const { contractAddress } = getSyscoinConfig();
-  if (ethers.Contract) {
-    return new ethers.Contract(contractAddress, SYSPPOINTS_ABI, signer);
-  }
   return new ethers.Contract(contractAddress, SYSPPOINTS_ABI, signer);
+}
+
+function createContractInterface() {
+  return new ethers.Interface(SYSPPOINTS_ABI);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function submitReviewHashAsync(userWallet, establishmentId, reviewHashHex) {
@@ -67,7 +72,87 @@ async function submitReviewHashByReviewId(reviewId) {
   };
 }
 
+async function verifyAnchoredReviewTx({
+  txHash,
+  expectedUserWallet,
+  expectedReviewHash,
+  expectedEstablishmentId,
+}) {
+  if (!txHash || !expectedUserWallet || !expectedReviewHash || !expectedEstablishmentId) {
+    return { ok: false, reason: 'missing verification parameters' };
+  }
+
+  const provider = createProvider();
+
+  const normalizedUserWallet = ethers.getAddress(expectedUserWallet);
+  const normalizedReviewHash = ethers.hexlify(expectedReviewHash).toLowerCase();
+  const expectedEstablishmentHash = hashEstablishmentId(expectedEstablishmentId).toLowerCase();
+  const { contractAddress, chainId } = getSyscoinConfig();
+  const interfaceAbi = createContractInterface();
+
+  let receipt = null;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    receipt = await provider.getTransactionReceipt(txHash);
+    if (receipt) break;
+    await sleep(1500);
+  }
+  if (!receipt) {
+    return { ok: false, reason: 'transaction receipt not found yet' };
+  }
+
+  if (Number(receipt.status) !== 1) {
+    return { ok: false, reason: 'transaction not successful' };
+  }
+
+  if (String(receipt.to || '').toLowerCase() !== String(contractAddress).toLowerCase()) {
+    return { ok: false, reason: 'transaction target contract mismatch' };
+  }
+
+  const matchingEvent = (receipt.logs || []).find((log) => {
+    if (String(log.address || '').toLowerCase() !== String(contractAddress).toLowerCase()) return false;
+    try {
+      const parsed = interfaceAbi.parseLog(log);
+      if (!parsed || parsed.name !== 'ReviewAnchored') return false;
+      const eventUser = ethers.getAddress(parsed.args.user);
+      const eventReviewHash = String(parsed.args.reviewHash || '').toLowerCase();
+      const eventEstablishmentHash = String(parsed.args.establishmentId || '').toLowerCase();
+      return (
+        eventUser === normalizedUserWallet &&
+        eventReviewHash === normalizedReviewHash &&
+        eventEstablishmentHash === expectedEstablishmentHash
+      );
+    } catch {
+      return false;
+    }
+  });
+
+  if (!matchingEvent) {
+    return { ok: false, reason: 'matching ReviewAnchored event not found' };
+  }
+
+  let blockTimestamp = null;
+  if (receipt.blockNumber != null) {
+    try {
+      const block = await provider.getBlock(receipt.blockNumber);
+      if (block?.timestamp != null) {
+        blockTimestamp = new Date(Number(block.timestamp) * 1000).toISOString();
+      }
+    } catch {
+      blockTimestamp = null;
+    }
+  }
+
+  return {
+    ok: true,
+    txHash,
+    chainId: Number(chainId),
+    blockNumber: receipt.blockNumber != null ? Number(receipt.blockNumber) : null,
+    blockTimestamp,
+  };
+}
+
 module.exports = {
   submitReviewHashAsync,
   submitReviewHashByReviewId,
+  verifyAnchoredReviewTx,
 };
