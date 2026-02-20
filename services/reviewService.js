@@ -7,6 +7,7 @@ const {
   listReviews: listReviewsRepo,
   countByUserId,
   findLatestByUserId,
+  countByUserAndEstablishmentBetween,
 } = require('../repositories/reviewRepository');
 const { findById: findUserById } = require('../repositories/userRepository');
 const { createEvidenceBatch } = require('../repositories/reviewEvidenceRepository');
@@ -18,6 +19,18 @@ const { getCurrentConfig } = require('../repositories/pointsConfigRepository');
 const { findByUserAndKey, saveResponse } = require('../repositories/idempotencyRepository');
 
 const idempotencyCache = new Map();
+const DEFAULT_MAX_REVIEW_TAGS = 5;
+const DEFAULT_DAILY_REVIEW_LIMIT = 1;
+
+function getUtcDayRange(referenceDateInput) {
+  const referenceDate = referenceDateInput ? new Date(referenceDateInput) : new Date();
+  const year = referenceDate.getUTCFullYear();
+  const month = referenceDate.getUTCMonth();
+  const day = referenceDate.getUTCDate();
+  const start = new Date(Date.UTC(year, month, day, 0, 0, 0, 0));
+  const end = new Date(Date.UTC(year, month, day + 1, 0, 0, 0, 0));
+  return { start: start.toISOString(), end: end.toISOString() };
+}
 
 function computePoints({ description, stars, price, evidenceCount, config }) {
   let points = 0;
@@ -137,6 +150,28 @@ async function createReviewService({
   if (!config) {
     throw new ApiError(500, 'points configuration missing');
   }
+  const maxReviewTags = Number(config.max_review_tags ?? DEFAULT_MAX_REVIEW_TAGS);
+  if (Array.isArray(tags) && maxReviewTags > 0 && tags.length > maxReviewTags) {
+    throw new ApiError(400, `tags can contain at most ${maxReviewTags} items`);
+  }
+
+  const maxDailyReviews = Number(config.max_reviews_per_establishment_per_day ?? DEFAULT_DAILY_REVIEW_LIMIT);
+  if (maxDailyReviews > 0) {
+    const { start, end } = getUtcDayRange(new Date());
+    const reviewsToday = await countByUserAndEstablishmentBetween({ query }, {
+      userId: user_id,
+      establishmentId: establishment_id,
+      startAt: start,
+      endAt: end,
+    });
+    if (reviewsToday >= maxDailyReviews) {
+      throw new ApiError(
+        409,
+        `daily review limit reached for this establishment (${maxDailyReviews} per day)`
+      );
+    }
+  }
+
   const points_awarded = computePoints({
     description,
     stars,
@@ -247,6 +282,41 @@ async function listReviewsService({ page, pageSize, establishmentId, sort }) {
   };
 }
 
+async function getDailyReviewLimitStatusService({ userId, establishmentId, referenceDate = null }) {
+  const config = await getCurrentConfig({ query });
+  const maxDailyReviews = Number(config?.max_reviews_per_establishment_per_day ?? DEFAULT_DAILY_REVIEW_LIMIT);
+  const maxPerDay = maxDailyReviews > 0 ? maxDailyReviews : 0;
+  if (maxPerDay === 0) {
+    return {
+      max_per_day: 0,
+      reviews_today: 0,
+      remaining_today: null,
+      can_review_today: true,
+      message: 'daily review limit is disabled',
+    };
+  }
+
+  const { start, end } = getUtcDayRange(referenceDate);
+  const reviewsToday = await countByUserAndEstablishmentBetween({ query }, {
+    userId,
+    establishmentId,
+    startAt: start,
+    endAt: end,
+  });
+  const remainingToday = Math.max(0, maxPerDay - reviewsToday);
+  const canReviewToday = remainingToday > 0;
+
+  return {
+    max_per_day: maxPerDay,
+    reviews_today: reviewsToday,
+    remaining_today: remainingToday,
+    can_review_today: canReviewToday,
+    message: canReviewToday
+      ? `you can still post ${remainingToday} review(s) today for this establishment`
+      : `daily limit reached (${maxPerDay} per day for this establishment)`,
+  };
+}
+
 async function saveReviewAnchorTxService({
   reviewId,
   requesterId,
@@ -324,5 +394,6 @@ module.exports = {
     saveReviewAnchorTx: saveReviewAnchorTxService,
     countReviewsByUserId: countReviewsByUserIdService,
     shouldRequireReviewCaptcha: shouldRequireReviewCaptchaService,
+    getDailyReviewLimitStatus: getDailyReviewLimitStatusService,
   },
 };
