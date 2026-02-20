@@ -42,7 +42,7 @@ export default function WalletModal({
     document.body.style.overflow = "hidden"
 
     const onEscape = (event) => {
-      if (event.key === "Escape" && !walletBusy) onClose()
+      if (event.key === "Escape") onClose()
     }
 
     window.addEventListener("keydown", onEscape)
@@ -55,7 +55,7 @@ export default function WalletModal({
   if (!isOpen) return null
 
   return (
-    <div className={`wallet-modal-overlay ${isVisible ? "show" : ""}`} onClick={() => !walletBusy && onClose()} aria-hidden={!isVisible}>
+    <div className={`wallet-modal-overlay ${isVisible ? "show" : ""}`} onClick={onClose} aria-hidden={!isVisible}>
       <div
         className={`wallet-modal-card ${isVisible ? "show" : ""}`}
         role="dialog"
@@ -68,7 +68,7 @@ export default function WalletModal({
             <h3>Connect Wallet</h3>
             <p>Choose a wallet to continue</p>
           </div>
-          <button className="wallet-modal-close" onClick={onClose} disabled={walletBusy} aria-label="Close wallet modal">
+          <button className="wallet-modal-close" onClick={onClose} aria-label="Close wallet modal">
             ×
           </button>
         </div>

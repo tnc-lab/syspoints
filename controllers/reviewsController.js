@@ -20,6 +20,10 @@ function countWords(text) {
 async function createReview(req, res, next) {
   try {
     const {
+      review_id,
+      review_hash,
+      review_timestamp,
+      tx_hash,
       user_id,
       establishment_id,
       title,
@@ -32,6 +36,20 @@ async function createReview(req, res, next) {
       captcha_token,
       captcha_answer,
     } = req.body || {};
+
+    if (!isValidUuid(review_id)) {
+      throw new ApiError(400, 'review_id must be a UUID');
+    }
+    if (!isNonEmptyString(review_hash) || !/^0x[a-fA-F0-9]{64}$/.test(review_hash)) {
+      throw new ApiError(400, 'review_hash must be a 32-byte hex string');
+    }
+    if (!isNonEmptyString(tx_hash) || !/^0x[a-fA-F0-9]{64}$/.test(tx_hash)) {
+      throw new ApiError(400, 'tx_hash must be a valid transaction hash');
+    }
+    const parsedReviewTimestamp = new Date(review_timestamp);
+    if (!review_timestamp || Number.isNaN(parsedReviewTimestamp.getTime())) {
+      throw new ApiError(400, 'review_timestamp must be a valid datetime');
+    }
 
     if (!isValidUuid(user_id)) {
       throw new ApiError(400, 'user_id must be a UUID');
@@ -102,6 +120,10 @@ async function createReview(req, res, next) {
     const idempotencyKey = req.header('Idempotency-Key') || null;
 
     const review = await reviewService.createReview({
+      review_id,
+      review_hash,
+      review_timestamp: parsedReviewTimestamp.toISOString(),
+      tx_hash,
       user_id,
       establishment_id,
       title,
