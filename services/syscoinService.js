@@ -7,8 +7,25 @@ const ethers = require('ethers');
 
 const SYSPPOINTS_ABI = [
   'function anchorReview(address user, bytes32 reviewHash, bytes32 establishmentId) external',
+  'function anchorApprovedReview(address user, bytes32 reviewHash, bytes32 establishmentId) external',
+  'function approveReview(bytes32 reviewHash) external',
+  'function rejectReview(bytes32 reviewHash) external',
+  'function executeApprovedReviewEffect(bytes32 reviewHash) external returns (bool)',
+  'function getReviewStatus(bytes32 reviewHash) external view returns (uint8)',
+  'function isReviewApproved(bytes32 reviewHash) external view returns (bool)',
+  'function getReviewAnchor(bytes32 reviewHash) external view returns (address user, bytes32 establishmentId, uint256 anchoredAt, uint256 reviewedAt, uint8 status, bool executed)',
   'event ReviewAnchored(address indexed user, bytes32 indexed reviewHash, bytes32 indexed establishmentId, uint256 timestamp)',
+  'event ReviewApproved(bytes32 indexed reviewHash, address indexed reviewer, uint256 timestamp)',
+  'event ReviewRejected(bytes32 indexed reviewHash, address indexed reviewer, uint256 timestamp)',
+  'event ReviewEffectExecuted(bytes32 indexed reviewHash, address indexed executor, uint256 timestamp)',
 ];
+
+const REVIEW_CHAIN_STATUS = {
+  NONE: 0,
+  PENDING: 1,
+  APPROVED: 2,
+  REJECTED: 3,
+};
 
 function createContract() {
   const signer = createSigner();
@@ -69,6 +86,44 @@ async function submitReviewHashByReviewId(reviewId) {
     establishment_id_hash: establishment_hash,
     user_wallet: user.wallet_address,
     tx_hash: tx.hash,
+  };
+}
+
+async function anchorApprovedReviewOnChain({
+  userWallet,
+  reviewHash,
+  establishmentId,
+}) {
+  if (!userWallet || !reviewHash || !establishmentId) {
+    throw new Error('missing parameters to anchor approved review');
+  }
+
+  const contract = createContract();
+  const establishmentHash = hashEstablishmentId(establishmentId);
+  const tx = await contract.anchorApprovedReview(userWallet, reviewHash, establishmentHash);
+  const receipt = await tx.wait();
+  if (!receipt || Number(receipt.status) !== 1) {
+    throw new Error('anchorApprovedReview transaction failed');
+  }
+
+  let blockTimestamp = null;
+  if (receipt.blockNumber != null) {
+    try {
+      const provider = createProvider();
+      const block = await provider.getBlock(receipt.blockNumber);
+      if (block?.timestamp != null) {
+        blockTimestamp = new Date(Number(block.timestamp) * 1000).toISOString();
+      }
+    } catch {
+      blockTimestamp = null;
+    }
+  }
+
+  return {
+    txHash: tx.hash,
+    chainId: Number(getSyscoinConfig().chainId),
+    blockNumber: receipt.blockNumber != null ? Number(receipt.blockNumber) : null,
+    blockTimestamp,
   };
 }
 
@@ -151,8 +206,32 @@ async function verifyAnchoredReviewTx({
   };
 }
 
+async function getReviewStatusOnChain(reviewHash) {
+  if (!reviewHash) return { ok: false, reason: 'review_hash is required' };
+
+  try {
+    const provider = createProvider();
+    const { contractAddress } = getSyscoinConfig();
+    const contract = new ethers.Contract(contractAddress, SYSPPOINTS_ABI, provider);
+    const statusRaw = await contract.getReviewStatus(reviewHash);
+    const status = Number(statusRaw);
+    return {
+      ok: true,
+      status,
+      isPending: status === REVIEW_CHAIN_STATUS.PENDING,
+      isApproved: status === REVIEW_CHAIN_STATUS.APPROVED,
+      isRejected: status === REVIEW_CHAIN_STATUS.REJECTED,
+    };
+  } catch (err) {
+    return { ok: false, reason: err?.message || 'failed to fetch review status from chain' };
+  }
+}
+
 module.exports = {
+  REVIEW_CHAIN_STATUS,
   submitReviewHashAsync,
   submitReviewHashByReviewId,
+  anchorApprovedReviewOnChain,
   verifyAnchoredReviewTx,
+  getReviewStatusOnChain,
 };

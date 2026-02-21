@@ -353,6 +353,7 @@
   border-top: 1px solid var(--border);
   padding: 18px 0;
   background: #fff;
+  overflow: hidden;
 }
 
 .icon-button {
@@ -1233,7 +1234,7 @@
 
 .table-row {
   display: grid;
-  grid-template-columns: 70px 1fr 120px;
+  grid-template-columns: 70px minmax(0, 1fr) 120px;
   align-items: center;
   gap: 14px;
 }
@@ -1249,12 +1250,30 @@
   margin-bottom: 6px;
   font-size: 1rem;
   line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .review-sub {
   font-size: 0.9rem;
   color: var(--muted);
   line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.review-title.preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.review-sub.preview {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .review-actions {
@@ -1291,6 +1310,11 @@
   align-items: flex-start;
 }
 
+.review-row .review-content {
+  min-width: 0;
+  flex: 1;
+}
+
 .review-thumb {
   width: 44px;
   height: 44px;
@@ -1320,6 +1344,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  min-width: 0;
 }
 
 .tag {
@@ -1328,6 +1353,18 @@
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.01em;
+  display: inline-block;
+  max-width: min(220px, 100%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-detail-text {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 @media (max-width: 680px) {

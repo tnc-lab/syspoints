@@ -33,6 +33,7 @@ export default function Header({
 
     if (isAdmin) {
       items.push(
+        { key: "admin-moderation", label: "Moderación" },
         { key: "admin-establishments", label: "Nuevo establishment" },
         { key: "admin-users", label: "Usuarios" },
         { key: "admin-config", label: "Config" }

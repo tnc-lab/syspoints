@@ -15,8 +15,13 @@ const MAX_WALLET_LOGO_INPUT_BYTES = 1_000_000
 const WALLET_LOGO_STANDARD_SIZE = 256
 const MAX_REVIEW_EVIDENCE_IMAGES = 3
 const MIN_REVIEW_EVIDENCE_IMAGES = 1
-const MAX_REVIEW_TITLE_WORDS = 12
+const MAX_REVIEW_TITLE_CHARS = 120
+const MAX_REVIEW_DESCRIPTION_CHARS = 2000
 const DEFAULT_MAX_REVIEW_TAGS = 5
+const MIN_REVIEW_TAG_CHARS = 2
+const MAX_REVIEW_TAG_CHARS = 30
+const REVIEW_TAG_ALLOWED_REGEX = /^[\p{L}\p{N}][\p{L}\p{N}\s._-]*$/u
+const MODERATION_STATUSES = ["pending", "approved", "rejected", "all"]
 const HOME_REVIEW_DESCRIPTION_MAX_CHARS = 200
 const MAP_SEARCH_RESULT_LIMIT = 6
 const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
@@ -66,6 +71,35 @@ const WALLET_OPTION_CONFIG = {
 }
 
 const EIP6963_REGISTRY_KEY = "__syspoints_eip6963_registry"
+
+const normalizeReviewText = (value) =>
+  String(value || "").normalize("NFKC").replace(/\s+/g, " ").trim()
+
+const containsReviewEmoji = (value) =>
+  /[\p{Extended_Pictographic}\p{Emoji_Presentation}]/u.test(String(value || ""))
+
+const containsUnsafeHtmlLikeContent = (value) => {
+  const text = String(value || "")
+  if (!text) return false
+  return (
+    /<[^>]*>/i.test(text) ||
+    /<\/?[a-z][\s\S]*?>/i.test(text) ||
+    /&(?:lt|gt|#x0*3c|#0*60);/i.test(text) ||
+    /\b(?:javascript|vbscript)\s*:/i.test(text) ||
+    /\bdata\s*:\s*text\/html/i.test(text)
+  )
+}
+
+const isValidReviewPurchaseUrl = (value) => {
+  const normalized = String(value || "").trim()
+  if (!normalized) return true
+  try {
+    const url = new URL(normalized)
+    return url.protocol === "http:" || url.protocol === "https:"
+  } catch (error) {
+    return false
+  }
+}
 
 const getEip6963Registry = () => {
   if (typeof window === "undefined") return []
@@ -436,6 +470,8 @@ function App() {
   const [authStatusVisible, setAuthStatusVisible] = useState(false)
   const [profileStatus, setProfileStatus] = useState("")
   const [profileBusy, setProfileBusy] = useState(false)
+  const [myReviewStatuses, setMyReviewStatuses] = useState([])
+  const [loadingMyReviewStatuses, setLoadingMyReviewStatuses] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [showWalletModal, setShowWalletModal] = useState(false)
   const [modalVisible, setModalVisible] = useState(false)
@@ -544,6 +580,12 @@ function App() {
     error: "",
   })
   const [adminStatus, setAdminStatus] = useState("")
+  const [pendingModerationReviews, setPendingModerationReviews] = useState([])
+  const [loadingPendingModerationReviews, setLoadingPendingModerationReviews] = useState(false)
+  const [moderationActionId, setModerationActionId] = useState("")
+  const [moderationStatusFilter, setModerationStatusFilter] = useState("pending")
+  const [moderationSearchDraft, setModerationSearchDraft] = useState("")
+  const [moderationSearchApplied, setModerationSearchApplied] = useState("")
   const [adminUsers, setAdminUsers] = useState([])
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(false)
   const [pointsConfig, setPointsConfig] = useState({
@@ -1163,21 +1205,23 @@ function App() {
     return labels.length ? `${labels.join(" + ")} detected` : "Injected wallet detected"
   }
 
-  const countWords = (text) =>
-    String(text || "").trim().split(/\s+/).filter(Boolean).length
   const hasSelectedCategory = Boolean(String(establishmentCategory || "").trim())
   const hasConfirmedEstablishment = Boolean(String(reviewForm.establishment_id || "").trim())
-  const reviewTitleWordCount = countWords(reviewForm.title)
+  const normalizedReviewTitle = normalizeReviewText(reviewForm.title)
+  const titleHasUnsafeContent =
+    containsUnsafeHtmlLikeContent(normalizedReviewTitle) || containsReviewEmoji(normalizedReviewTitle)
   const parsedReviewTags = reviewForm.tags
     .split(",")
-    .map((tag) => tag.trim())
+    .map((tag) => normalizeReviewText(tag))
     .filter(Boolean)
   const maxReviewTags = Number(pointsConfig.max_review_tags || DEFAULT_MAX_REVIEW_TAGS)
   const categoryOptions = ESTABLISHMENT_CATEGORIES.filter((category) =>
     category !== "Others" || Boolean(pointsConfig.allow_global_category_search)
   )
   const hasValidReviewTitle =
-    Boolean(String(reviewForm.title || "").trim()) && reviewTitleWordCount <= MAX_REVIEW_TITLE_WORDS
+    Boolean(normalizedReviewTitle) &&
+    normalizedReviewTitle.length <= MAX_REVIEW_TITLE_CHARS &&
+    !titleHasUnsafeContent
 
   const goToNextWizardStep = (currentStep, nextStep) => {
     if (currentStep === 1) {
@@ -1203,12 +1247,77 @@ function App() {
     }
 
     if (currentStep === 3) {
-      if (!String(reviewForm.title || "").trim()) {
+      if (!normalizedReviewTitle) {
         setReviewWizardStatus("Debes ingresar el título de la reseña antes de continuar.")
         return
       }
-      if (reviewTitleWordCount > MAX_REVIEW_TITLE_WORDS) {
-        setReviewWizardStatus(`El título debe tener máximo ${MAX_REVIEW_TITLE_WORDS} palabras.`)
+      if (normalizedReviewTitle.length > MAX_REVIEW_TITLE_CHARS) {
+        setReviewWizardStatus(`El título debe tener máximo ${MAX_REVIEW_TITLE_CHARS} caracteres.`)
+        return
+      }
+      if (containsUnsafeHtmlLikeContent(normalizedReviewTitle)) {
+        setReviewWizardStatus("El título no puede contener HTML o scripts.")
+        return
+      }
+      if (containsReviewEmoji(normalizedReviewTitle)) {
+        setReviewWizardStatus("El título no puede contener emojis.")
+        return
+      }
+    }
+
+    if (currentStep === 4) {
+      const normalizedDescription = normalizeReviewText(reviewForm.description)
+      if (!normalizedDescription) {
+        setReviewWizardStatus("Debes ingresar una descripción antes de continuar.")
+        return
+      }
+      if (normalizedDescription.length > MAX_REVIEW_DESCRIPTION_CHARS) {
+        setReviewWizardStatus(`La descripción debe tener máximo ${MAX_REVIEW_DESCRIPTION_CHARS} caracteres.`)
+        return
+      }
+      if (containsUnsafeHtmlLikeContent(normalizedDescription)) {
+        setReviewWizardStatus("La descripción no puede contener HTML o scripts.")
+        return
+      }
+      if (containsReviewEmoji(normalizedDescription)) {
+        setReviewWizardStatus("La descripción no puede contener emojis.")
+        return
+      }
+    }
+
+    if (currentStep === 8) {
+      if (!parsedReviewTags.length) {
+        setReviewWizardStatus("Debes ingresar al menos un tag.")
+        return
+      }
+      if (maxReviewTags > 0 && parsedReviewTags.length > maxReviewTags) {
+        setReviewWizardStatus(`Excediste el máximo de ${maxReviewTags} tags.`)
+        return
+      }
+      const invalidTag = parsedReviewTags.find((tag) => {
+        if (tag.length < MIN_REVIEW_TAG_CHARS || tag.length > MAX_REVIEW_TAG_CHARS) return true
+        if (containsUnsafeHtmlLikeContent(tag) || containsReviewEmoji(tag)) return true
+        return !REVIEW_TAG_ALLOWED_REGEX.test(tag)
+      })
+      if (invalidTag) {
+        setReviewWizardStatus(
+          `Tag inválido: "${invalidTag}". Usa solo letras/números (2-${MAX_REVIEW_TAG_CHARS} chars), sin HTML ni emojis.`
+        )
+        return
+      }
+    }
+
+    if (currentStep === 6) {
+      const numericPrice = Number(reviewForm.price)
+      if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+        setReviewWizardStatus("Debes ingresar un precio mayor a 0 antes de continuar.")
+        return
+      }
+    }
+
+    if (currentStep === 7) {
+      if (!isValidReviewPurchaseUrl(reviewForm.purchase_url)) {
+        setReviewWizardStatus("El link de compra debe ser una URL válida (http/https).")
         return
       }
     }
@@ -1673,6 +1782,93 @@ function App() {
     }
   }
 
+  const fetchPendingModerationReviews = async ({
+    status = moderationStatusFilter,
+    search = moderationSearchApplied,
+  } = {}) => {
+    if (!isAdmin) return
+    setLoadingPendingModerationReviews(true)
+    setAdminStatus("")
+    try {
+      const query = new URLSearchParams({
+        page: "1",
+        page_size: "100",
+      })
+      if (status) {
+        query.set("status", status)
+      }
+      const normalizedSearch = String(search || "").trim()
+      if (normalizedSearch) {
+        query.set("search", normalizedSearch)
+      }
+      const result = await apiFetch(`/reviews/submissions/pending?${query.toString()}`)
+      setPendingModerationReviews(Array.isArray(result?.data) ? result.data : [])
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo cargar la cola de moderación.")
+      setPendingModerationReviews([])
+    } finally {
+      setLoadingPendingModerationReviews(false)
+    }
+  }
+
+  const applyModerationFilters = () => {
+    const normalizedSearch = String(moderationSearchDraft || "").trim()
+    setModerationSearchApplied(normalizedSearch)
+    fetchPendingModerationReviews({
+      status: moderationStatusFilter,
+      search: normalizedSearch,
+    })
+  }
+
+  const clearModerationFilters = () => {
+    setModerationStatusFilter("pending")
+    setModerationSearchDraft("")
+    setModerationSearchApplied("")
+    fetchPendingModerationReviews({
+      status: "pending",
+      search: "",
+    })
+  }
+
+  const approvePendingReview = async (submissionId) => {
+    if (!isAdmin || !submissionId) return
+    setModerationActionId(submissionId)
+    setAdminStatus("")
+    try {
+      await apiFetch(`/reviews/submissions/${submissionId}/approve`, {
+        method: "POST",
+      })
+      setAdminStatus("Review aprobada y publicada on-chain correctamente.")
+      await fetchPendingModerationReviews()
+      fetchReviews(reviewsMeta.page || 1)
+      fetchLeaderboard(leaderMeta.page || 1)
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo aprobar la review.")
+    } finally {
+      setModerationActionId("")
+    }
+  }
+
+  const rejectPendingReview = async (submissionId) => {
+    if (!isAdmin || !submissionId) return
+    setModerationActionId(submissionId)
+    setAdminStatus("")
+    try {
+      await apiFetch(`/reviews/submissions/${submissionId}/reject`, {
+        method: "POST",
+        body: JSON.stringify({
+          reason: "Rejected by admin moderation policy",
+        }),
+      })
+      setAdminStatus("Review rechazada correctamente.")
+      await fetchPendingModerationReviews()
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo rechazar la review.")
+    } finally {
+      setModerationActionId("")
+    }
+  }
+
   const fetchPointsConfig = async () => {
     if (!isAdmin) return
     setLoadingPointsConfig(true)
@@ -1960,6 +2156,22 @@ function App() {
       setReviews([])
     } finally {
       setLoadingReviews(false)
+    }
+  }
+
+  const fetchMyReviewStatuses = async () => {
+    if (!token) {
+      setMyReviewStatuses([])
+      return
+    }
+    setLoadingMyReviewStatuses(true)
+    try {
+      const result = await apiFetch("/reviews/my-statuses?page=1&page_size=30")
+      setMyReviewStatuses(Array.isArray(result?.data) ? result.data : [])
+    } catch {
+      setMyReviewStatuses([])
+    } finally {
+      setLoadingMyReviewStatuses(false)
     }
   }
 
@@ -2590,21 +2802,70 @@ function App() {
         return
       }
 
-      const titleWords = countWords(reviewForm.title)
-      if (!reviewForm.title.trim()) {
+      const normalizedTitle = normalizeReviewText(reviewForm.title)
+      if (!normalizedTitle) {
         setAuthStatus("Title is required.")
         setReviewTx((prev) => ({ ...prev, step: "error", message: "Title is required." }))
         return
       }
-      if (titleWords > MAX_REVIEW_TITLE_WORDS) {
-        setAuthStatus(`Title must have at most ${MAX_REVIEW_TITLE_WORDS} words.`)
-        setReviewTx((prev) => ({
-          ...prev,
-          step: "error",
-          message: `Title must have at most ${MAX_REVIEW_TITLE_WORDS} words.`,
-        }))
+      if (normalizedTitle.length > MAX_REVIEW_TITLE_CHARS) {
+        const message = `Title must have at most ${MAX_REVIEW_TITLE_CHARS} characters.`
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
+      if (containsUnsafeHtmlLikeContent(normalizedTitle)) {
+        const message = "Title must not contain HTML or script-like content."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      if (containsReviewEmoji(normalizedTitle)) {
+        const message = "Title must not contain emojis."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+
+      const normalizedDescription = normalizeReviewText(reviewForm.description)
+      if (!normalizedDescription) {
+        const message = "Description is required."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      if (normalizedDescription.length > MAX_REVIEW_DESCRIPTION_CHARS) {
+        const message = `Description must have at most ${MAX_REVIEW_DESCRIPTION_CHARS} characters.`
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      if (containsUnsafeHtmlLikeContent(normalizedDescription)) {
+        const message = "Description must not contain HTML or script-like content."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      if (containsReviewEmoji(normalizedDescription)) {
+        const message = "Description must not contain emojis."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      const numericPrice = Number(reviewForm.price)
+      if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
+        const message = "Price must be greater than 0."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      if (!isValidReviewPurchaseUrl(reviewForm.purchase_url)) {
+        const message = "Purchase URL must be a valid URL (http/https)."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+
       if (
         !Array.isArray(reviewForm.evidence_images) ||
         reviewForm.evidence_images.length < MIN_REVIEW_EVIDENCE_IMAGES ||
@@ -2640,13 +2901,38 @@ function App() {
         }
       }
 
-      const tags = reviewForm.tags
+      const rawTags = reviewForm.tags
         .split(",")
-        .map((tag) => tag.trim())
+        .map((tag) => normalizeReviewText(tag))
         .filter(Boolean)
+      const tagsDedup = new Map()
+      for (const tag of rawTags) {
+        const lowerTag = tag.toLowerCase()
+        if (!tagsDedup.has(lowerTag)) {
+          tagsDedup.set(lowerTag, tag)
+        }
+      }
+      const tags = Array.from(tagsDedup.values())
+      if (!tags.length) {
+        const message = "At least one tag is required."
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
       const maxReviewTags = Number(pointsConfig.max_review_tags || DEFAULT_MAX_REVIEW_TAGS)
       if (maxReviewTags > 0 && tags.length > maxReviewTags) {
         const message = `Puedes agregar máximo ${maxReviewTags} tags por review.`
+        setAuthStatus(message)
+        setReviewTx((prev) => ({ ...prev, step: "error", message }))
+        return
+      }
+      const invalidTag = tags.find((tag) => {
+        if (tag.length < MIN_REVIEW_TAG_CHARS || tag.length > MAX_REVIEW_TAG_CHARS) return true
+        if (containsUnsafeHtmlLikeContent(tag) || containsReviewEmoji(tag)) return true
+        return !REVIEW_TAG_ALLOWED_REGEX.test(tag)
+      })
+      if (invalidTag) {
+        const message = `Tag invalid: "${invalidTag}". Use 2-${MAX_REVIEW_TAG_CHARS} chars, no HTML, no emojis.`
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
@@ -2655,10 +2941,10 @@ function App() {
       const body = {
         user_id: userId,
         establishment_id: reviewForm.establishment_id,
-        title: reviewForm.title.trim(),
-        description: reviewForm.description,
+        title: normalizedTitle,
+        description: normalizedDescription,
         stars: Number(reviewForm.stars),
-        price: Number(reviewForm.price),
+        price: numericPrice,
         purchase_url: String(reviewForm.purchase_url || "").trim() || null,
         tags,
         evidence_images: reviewForm.evidence_images,
@@ -2670,14 +2956,8 @@ function App() {
       if (!provider) {
         throw new Error("Wallet provider not found.")
       }
-      await ensureSufficientAnchorFunds({
-        provider,
-        address: walletAddress,
-        establishmentId: reviewForm.establishment_id,
-      })
 
       const signer = await provider.getSigner()
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer)
       const reviewId = createClientReviewId()
       const reviewTimestamp = new Date().toISOString()
       const reviewHash = ethers.solidityPackedKeccak256(
@@ -2690,47 +2970,64 @@ function App() {
           String(body.price),
         ]
       )
-      const establishmentHash = ethers.solidityPackedKeccak256(
-        ["string"],
-        [String(reviewForm.establishment_id)]
-      )
+      const signatureNonce = createClientIdempotencyKey()
+      const signatureDeadline = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+      if (!CONTRACT_ADDRESS) {
+        throw new Error("Missing contract address configuration.")
+      }
+      const network = await provider.getNetwork()
+      const typedDataDomain = {
+        name: "Syspoints",
+        version: "1",
+        chainId: Number(network.chainId),
+        verifyingContract: CONTRACT_ADDRESS,
+      }
+      const typedDataTypes = {
+        ReviewSubmission: [
+          { name: "review_id", type: "string" },
+          { name: "user_id", type: "string" },
+          { name: "establishment_id", type: "string" },
+          { name: "review_hash", type: "bytes32" },
+          { name: "signature_nonce", type: "string" },
+          { name: "signature_deadline", type: "uint256" },
+        ],
+      }
+      const typedDataMessage = {
+        review_id: String(reviewId),
+        user_id: String(body.user_id),
+        establishment_id: String(body.establishment_id),
+        review_hash: String(reviewHash),
+        signature_nonce: String(signatureNonce),
+        signature_deadline: Math.floor(new Date(signatureDeadline).getTime() / 1000),
+      }
 
       setReviewTx((prev) => ({
         ...prev,
         step: "signing",
-        message: "Confirm the transaction in your wallet to anchor this review on-chain.",
+        message: "Sign the review message in your wallet (no gas required).",
       }))
 
-      const tx = await contract.anchorReview(walletAddress, reviewHash, establishmentHash)
+      const signature = await signer.signTypedData(typedDataDomain, typedDataTypes, typedDataMessage)
       if (isReviewSubmissionCancelled(submissionId)) {
         throw new Error("Review submission cancelled by user.")
       }
-      const txHash = tx?.hash || ""
-      const explorerBase = String(EXPLORER_TX_BASE_URL || "").replace(/\/+$/, "")
-      const explorerUrl = txHash && explorerBase ? `${explorerBase}/${txHash}` : ""
       setReviewTx((prev) => ({
         ...prev,
         step: "pending",
-        txHash,
-        explorerUrl,
+        txHash: "",
+        explorerUrl: "",
         points: 0,
-        message: "Transaction submitted. Waiting for confirmation...",
+        message: "Review submitted. Waiting moderation approval...",
       }))
-
-      const receipt = await tx.wait()
-      if (isReviewSubmissionCancelled(submissionId)) {
-        throw new Error("Review submission cancelled by user.")
-      }
-      if (!receipt || Number(receipt.status) !== 1) {
-        throw new Error("La transacción no fue confirmada en success. No se guardó la reseña.")
-      }
 
       const payloadToPersist = {
         ...body,
         review_id: reviewId,
         review_hash: reviewHash,
         review_timestamp: reviewTimestamp,
-        tx_hash: txHash,
+        signature,
+        signature_nonce: signatureNonce,
+        signature_deadline: signatureDeadline,
       }
       const requestSignature = JSON.stringify(payloadToPersist)
       let idempotencyKey = reviewSubmissionState.key
@@ -2739,7 +3036,7 @@ function App() {
         setReviewSubmissionState({ key: idempotencyKey, signature: requestSignature })
       }
 
-      const created = await apiFetch("/reviews", {
+      await apiFetch("/reviews/submissions", {
         method: "POST",
         headers: {
           "Idempotency-Key": idempotencyKey,
@@ -2750,20 +3047,17 @@ function App() {
         throw new Error("Review submission cancelled by user.")
       }
 
-      const pointsAwarded = Number(created?.points_awarded ?? 0)
       setReviewTx((prev) => ({
         ...prev,
         step: "success",
-        txHash,
-        explorerUrl,
-        points: pointsAwarded,
-        message: "Review anchored and persisted successfully.",
+        txHash: "",
+        explorerUrl: "",
+        points: 0,
+        message: "Review submitted successfully. Status: Pending moderation.",
       }))
 
       resetReviewDraft({ resetCategory: true })
-      setAuthStatus(REVIEW_SUCCESS_MESSAGE)
-      fetchReviews(1)
-      fetchLeaderboard(leaderMeta.page)
+      setAuthStatus("Review submitted and queued for moderation.")
       setActivePage("reviews")
     } catch (error) {
       if (isReviewSubmissionCancelled(submissionId)) {
@@ -2811,6 +3105,7 @@ function App() {
       .catch((error) => {
         setProfileStatus(error?.message || "No se pudieron cargar tus datos.")
       })
+    fetchMyReviewStatuses()
   }, [activePage, token])
 
   useEffect(() => {
@@ -2885,6 +3180,9 @@ function App() {
 
   useEffect(() => {
     if (!isAdmin) return
+    if (activePage === "admin-moderation") {
+      fetchPendingModerationReviews()
+    }
     if (activePage === "admin-users") {
       fetchAdminUsers()
     }
@@ -3072,7 +3370,7 @@ function App() {
                         {reviews.map((review, index) => (
                           <div className="review-card table-row" key={review.id}>
                             <div className="rank-pill">#{(reviewsMeta.page - 1) * DEFAULT_PAGE_SIZE + index + 1}</div>
-                            <div>
+                            <div className="review-main">
                               <div className="review-row">
                                 <div className="review-thumb review-thumb-lg" style={{ padding: 0, overflow: "hidden" }}>
                                   {establishmentsById.get(review.establishment_id)?.image_url ? (
@@ -3085,9 +3383,9 @@ function App() {
                                     <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
                                   )}
                                 </div>
-                                <div>
-                                  <div className="review-title">{review.title || "Untitled review"}</div>
-                                  <div className="review-sub">
+                                <div className="review-content">
+                                  <div className="review-title preview">{review.title || "Untitled review"}</div>
+                                  <div className="review-sub preview">
                                     {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
                                   </div>
                                   {Array.isArray(review.tags) && review.tags.length > 0 && (
@@ -3140,7 +3438,7 @@ function App() {
                             </div>
                             <div className="card-content">
                               <div className="card-header-row">
-                                <div className="review-title">{review.title || "Untitled review"}</div>
+                                <div className="review-title preview">{review.title || "Untitled review"}</div>
                                 <div className="review-stars">
                                   {Number(review.stars) || 0} ★
                                 </div>
@@ -3148,7 +3446,7 @@ function App() {
                               <div className="review-sub" style={{ fontWeight: 600, color: "var(--primary)", fontSize: "0.85rem", marginBottom: "6px" }}>
                                 {establishmentsById.get(review.establishment_id)?.name || "Unknown Place"}
                               </div>
-                              <div className="review-sub card-desc">
+                              <div className="review-sub card-desc preview">
                                 {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
                               </div>
                               
@@ -3594,10 +3892,10 @@ function App() {
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Título breve y claro (máx {MAX_REVIEW_TITLE_WORDS} palabras).
+                          Título breve y claro (máx {MAX_REVIEW_TITLE_CHARS} caracteres, sin HTML ni emojis).
                         </div>
                         <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
-                          {reviewTitleWordCount}/{MAX_REVIEW_TITLE_WORDS} palabras
+                          {normalizedReviewTitle.length}/{MAX_REVIEW_TITLE_CHARS} caracteres
                         </div>
                         <input
                           className="input"
@@ -3609,7 +3907,7 @@ function App() {
                         />
                         {!hasValidReviewTitle && String(reviewForm.title || "").trim() && (
                           <div style={{ fontSize: "12px", color: "#b91c1c" }}>
-                            El título debe tener máximo {MAX_REVIEW_TITLE_WORDS} palabras.
+                            Título inválido: respeta límites y evita HTML/emojis.
                           </div>
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
@@ -3631,7 +3929,10 @@ function App() {
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Describe tu experiencia con detalles: qué compraste o lo que sucedió, cómo te atendieron y la fecha aproximada. Evita incluir datos personales.
+                          Describe tu experiencia con detalles: qué compraste o lo que sucedió, cómo te atendieron y la fecha aproximada. Evita incluir datos personales, HTML y emojis.
+                        </div>
+                        <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
+                          {normalizeReviewText(reviewForm.description).length}/{MAX_REVIEW_DESCRIPTION_CHARS} caracteres
                         </div>
                         <textarea
                           className="input"
@@ -3646,7 +3947,7 @@ function App() {
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(3)}>
                             Atrás
                           </button>
-                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(5)}>
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(4, 5)}>
                             Siguiente
                           </button>
                         </div>
@@ -3690,7 +3991,7 @@ function App() {
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(4)}>
                             Atrás
                           </button>
-                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(6)}>
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(5, 6)}>
                             Siguiente
                           </button>
                         </div>
@@ -3705,7 +4006,7 @@ function App() {
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Opcional: indica el precio en soles (ej. 39.90).
+                          Ingresa el precio en soles (ej. 39.90). Debe ser mayor a 0.
                         </div>
                         <input
                           className="input"
@@ -3720,7 +4021,7 @@ function App() {
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(5)}>
                             Atrás
                           </button>
-                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(7)}>
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(6, 7)}>
                             Siguiente
                           </button>
                         </div>
@@ -3749,7 +4050,7 @@ function App() {
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(6)}>
                             Atrás
                           </button>
-                          <button type="button" className="primary-button" onClick={() => setReviewWizardStep(8)}>
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(7, 8)}>
                             Siguiente
                           </button>
                         </div>
@@ -3764,7 +4065,7 @@ function App() {
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Usa tags separadas por comas (ej.: delivery, atención, calidad). Máximo {maxReviewTags}.
+                          Usa tags separadas por comas (ej.: delivery, atención, calidad). Máximo {maxReviewTags}. Cada tag 2-{MAX_REVIEW_TAG_CHARS} chars, sin HTML ni emojis.
                         </div>
                         <div style={{ marginBottom: "6px", fontSize: "12px", color: parsedReviewTags.length > maxReviewTags ? "#b91c1c" : "#6b7280" }}>
                           {parsedReviewTags.length}/{maxReviewTags} tags
@@ -3789,7 +4090,7 @@ function App() {
                           <button
                             type="button"
                             className="primary-button"
-                            onClick={() => setReviewWizardStep(9)}
+                            onClick={() => goToNextWizardStep(8, 9)}
                             disabled={parsedReviewTags.length > maxReviewTags}
                           >
                             Siguiente
@@ -3941,7 +4242,7 @@ function App() {
                         <span>{(establishmentsById.get(selectedReview.establishment_id)?.name || selectedReview.establishment_id || "S")?.[0] || "S"}</span>
                       )}
                     </div>
-                    <div>
+                    <div className="review-content">
                       <div className="review-title">{selectedReview.title || "Untitled review"}</div>
                       <div className="review-sub">{establishmentsById.get(selectedReview.establishment_id)?.name || selectedReview.establishment_id}</div>
                       <div className="review-stars" style={{ marginTop: "6px" }}>
@@ -3952,7 +4253,7 @@ function App() {
                   </div>
                   <div>
                     <strong>Description</strong>
-                    <p style={{ marginTop: "6px" }}>{selectedReview.description}</p>
+                    <p className="review-detail-text">{selectedReview.description}</p>
                   </div>
                   <div className="chain-proof">
                     <strong>Blockchain proof</strong>
@@ -4089,6 +4390,50 @@ function App() {
                   {profileStatus}
                 </div>
               )}
+              <div style={{ marginTop: "18px" }}>
+                <h4 style={{ margin: "0 0 10px 0" }}>Mis reviews</h4>
+                {loadingMyReviewStatuses && (
+                  <div style={{ fontSize: "13px", color: "var(--muted)" }}>Cargando estados...</div>
+                )}
+                {!loadingMyReviewStatuses && myReviewStatuses.length === 0 && (
+                  <div style={{ fontSize: "13px", color: "var(--muted)" }}>Aún no tienes reviews enviadas.</div>
+                )}
+                {!loadingMyReviewStatuses && myReviewStatuses.length > 0 && (
+                  <div style={{ display: "grid", gap: "8px" }}>
+                    {myReviewStatuses.map((item) => {
+                      const status = String(item?.moderation_status || "").toLowerCase()
+                      const color = status === "approved"
+                        ? "#166534"
+                        : status === "rejected"
+                          ? "#b91c1c"
+                          : "#92400e"
+                      const bg = status === "approved"
+                        ? "#dcfce7"
+                        : status === "rejected"
+                          ? "#fee2e2"
+                          : "#fef3c7"
+                      return (
+                        <div key={item.id} style={{ border: "1px solid #e5e7eb", borderRadius: "10px", padding: "10px", background: "#fff" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
+                            <strong style={{ overflowWrap: "anywhere" }}>{item.title || "Untitled review"}</strong>
+                            <span style={{ background: bg, color, borderRadius: "999px", padding: "4px 10px", fontSize: "12px", fontWeight: 700 }}>
+                              {status === "approved" ? "Approved" : status === "rejected" ? "Rejected" : "Pending"}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: "12px", color: "var(--muted)", marginTop: "4px" }}>
+                            {new Date(item.created_at).toLocaleString()}
+                          </div>
+                          {item.moderation_reason && (
+                            <div style={{ fontSize: "12px", color: "#7f1d1d", marginTop: "6px" }}>
+                              Motivo: {item.moderation_reason}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </section>
           </div>
         )}
@@ -4375,6 +4720,141 @@ function App() {
                     </div>
                   ))}
                   {!adminUsers.length && <p>No hay usuarios registrados.</p>}
+                </div>
+              )}
+              {adminStatus && (
+                <div style={{ marginTop: "12px", color: "#e85151" }}>
+                  {adminStatus}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activePage === "admin-moderation" && isAdmin && (
+          <div className="grid">
+            <section className="panel" style={{ gridColumn: "1 / 2" }}>
+              <div className="panel-header">
+                <h3 className="panel-title">Moderación de reviews</h3>
+                <span className="pill">Admin</span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: "8px",
+                  alignItems: "stretch",
+                  marginBottom: "12px",
+                }}
+              >
+                <select
+                  className="input"
+                  style={{ minWidth: "170px", flex: "0 1 220px" }}
+                  value={moderationStatusFilter}
+                  onChange={(event) => setModerationStatusFilter(event.target.value)}
+                >
+                  {MODERATION_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {status === "all" ? "Todos" : status.charAt(0).toUpperCase() + status.slice(1)}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  className="input"
+                  style={{ minWidth: "240px", flex: "1 1 320px" }}
+                  placeholder="Buscar por título, descripción, tags, hash, usuario..."
+                  value={moderationSearchDraft}
+                  onChange={(event) => setModerationSearchDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault()
+                      applyModerationFilters()
+                    }
+                  }}
+                />
+                <button className="ghost-button" onClick={applyModerationFilters}>
+                  Aplicar
+                </button>
+                <button className="ghost-button" onClick={clearModerationFilters}>
+                  Limpiar
+                </button>
+              </div>
+              {loadingPendingModerationReviews ? (
+                <p>Cargando cola de moderación...</p>
+              ) : (
+                <div className="input-group">
+                  {pendingModerationReviews.map((item) => (
+                    <div key={item.id} style={{ border: "1px solid #e5e7eb", borderRadius: "12px", padding: "12px", display: "grid", gap: "8px", background: "#fff" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+                        <strong style={{ overflowWrap: "anywhere" }}>{item.title || "Untitled review"}</strong>
+                        <span
+                          className="pill"
+                          style={
+                            item.moderation_status === "approved"
+                              ? { background: "#dcfce7", color: "#166534" }
+                              : item.moderation_status === "rejected"
+                                ? { background: "#fee2e2", color: "#991b1b" }
+                                : { background: "#fef3c7", color: "#92400e" }
+                          }
+                        >
+                          {String(item.moderation_status || "pending").toUpperCase()}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                        Usuario: {item.user_id} · Establecimiento: {item.establishment_id}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                        Fecha envío: {item.created_at ? new Date(item.created_at).toLocaleString() : "N/A"}
+                      </div>
+                      <div style={{ fontSize: "14px", color: "#374151", overflowWrap: "anywhere" }}>
+                        {item.description}
+                      </div>
+                      {Array.isArray(item.tags) && item.tags.length > 0 && (
+                        <div className="review-tags">
+                          {item.tags.map((tag) => (
+                            <span key={`${item.id}-${tag}`} className="tag" style={{ background: "#eef2ff", color: "#3730a3" }}>
+                              #{tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {Array.isArray(item.evidence_images) && item.evidence_images.length > 0 && (
+                        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                          {item.evidence_images.map((imageUrl, index) => (
+                            <img
+                              key={`${item.id}-evidence-${index}`}
+                              src={imageUrl}
+                              alt={`Evidence ${index + 1}`}
+                              style={{ width: "110px", height: "74px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e5e7eb" }}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                        <button
+                          className="primary-button"
+                          onClick={() => approvePendingReview(item.id)}
+                          disabled={moderationActionId === item.id || item.moderation_status !== "pending"}
+                        >
+                          {moderationActionId === item.id ? "Procesando..." : "Aprobar y publicar"}
+                        </button>
+                        <button
+                          className="ghost-button"
+                          onClick={() => rejectPendingReview(item.id)}
+                          disabled={moderationActionId === item.id || item.moderation_status !== "pending"}
+                        >
+                          Rechazar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {!pendingModerationReviews.length && (
+                    <p>
+                      {moderationStatusFilter === "pending"
+                        ? "No hay reviews pendientes de moderación."
+                        : "No hay reviews para los filtros seleccionados."}
+                    </p>
+                  )}
                 </div>
               )}
               {adminStatus && (

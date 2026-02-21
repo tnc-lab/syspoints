@@ -11,8 +11,17 @@ const {
 } = require('../repositories/reviewRepository');
 const { findById: findUserById } = require('../repositories/userRepository');
 const { createEvidenceBatch } = require('../repositories/reviewEvidenceRepository');
+const {
+  createSubmission,
+  findById: findSubmissionById,
+  findByReviewHash,
+  listByUser: listSubmissionsByUser,
+  listForModeration,
+  markRejected,
+  markApproved,
+} = require('../repositories/reviewSubmissionRepository');
 const { establishmentService } = require('./establishmentService');
-const { verifyAnchoredReviewTx } = require('./syscoinService');
+const { verifyAnchoredReviewTx, anchorApprovedReviewOnChain } = require('./syscoinService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { hashReviewPayload } = require('../utils/hash');
 const { getCurrentConfig } = require('../repositories/pointsConfigRepository');
@@ -386,9 +395,295 @@ async function shouldRequireReviewCaptchaService(userId) {
   return { required, reviewsCount, cooldownMinutes };
 }
 
+function formatSubmissionResponse(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    user_id: row.user_id,
+    establishment_id: row.establishment_id,
+    title: row.title,
+    description: row.description,
+    stars: row.stars,
+    price: Number(row.price),
+    purchase_url: row.purchase_url,
+    tags: row.tags,
+    evidence_images: row.evidence_images,
+    review_hash: row.review_hash,
+    review_timestamp: row.review_timestamp,
+    moderation_status: row.moderation_status,
+    moderation_reason: row.moderation_reason || null,
+    moderated_by: row.moderated_by || null,
+    moderated_at: row.moderated_at || null,
+    approved_review_id: row.approved_review_id || null,
+    approval_tx_hash: row.approval_tx_hash || null,
+    approval_chain_id: row.approval_chain_id != null ? Number(row.approval_chain_id) : null,
+    approval_block_number: row.approval_block_number != null ? Number(row.approval_block_number) : null,
+    approval_block_timestamp: row.approval_block_timestamp || null,
+    created_at: row.created_at,
+  };
+}
+
+async function createReviewSubmissionService(payload) {
+  const {
+    review_id,
+    review_hash,
+    review_timestamp,
+    user_id,
+    establishment_id,
+    title,
+    description,
+    stars,
+    price,
+    purchase_url,
+    tags,
+    evidence_images,
+    signer_wallet,
+    signature,
+    signature_nonce,
+    signature_deadline,
+  } = payload;
+
+  const parsedReviewTimestamp = new Date(review_timestamp);
+  if (Number.isNaN(parsedReviewTimestamp.getTime())) {
+    throw new ApiError(400, 'review_timestamp must be a valid datetime');
+  }
+  const parsedSignatureDeadline = new Date(signature_deadline);
+  if (Number.isNaN(parsedSignatureDeadline.getTime())) {
+    throw new ApiError(400, 'signature_deadline must be a valid datetime');
+  }
+
+  const expectedReviewHash = hashReviewPayload({
+    review_id,
+    user_id,
+    establishment_id,
+    timestamp: parsedReviewTimestamp.toISOString(),
+    price,
+  });
+  if (String(expectedReviewHash).toLowerCase() !== String(review_hash).toLowerCase()) {
+    throw new ApiError(400, 'review_hash does not match the provided review payload');
+  }
+
+  const existingByHash = await findByReviewHash({ query }, review_hash);
+  if (existingByHash) {
+    throw new ApiError(409, 'review_hash already submitted');
+  }
+
+  const config = await getCurrentConfig({ query });
+  const maxReviewTags = Number(config?.max_review_tags ?? DEFAULT_MAX_REVIEW_TAGS);
+  if (Array.isArray(tags) && maxReviewTags > 0 && tags.length > maxReviewTags) {
+    throw new ApiError(400, `tags can contain at most ${maxReviewTags} items`);
+  }
+
+  const maxDailyReviews = Number(config?.max_reviews_per_establishment_per_day ?? DEFAULT_DAILY_REVIEW_LIMIT);
+  if (maxDailyReviews > 0) {
+    const { start, end } = getUtcDayRange(new Date());
+    const reviewsToday = await countByUserAndEstablishmentBetween({ query }, {
+      userId: user_id,
+      establishmentId: establishment_id,
+      startAt: start,
+      endAt: end,
+    });
+    const submissionsTodayResult = await query(
+      `SELECT COUNT(*)::int AS total
+       FROM review_submissions
+       WHERE user_id = $1
+         AND establishment_id = $2
+         AND moderation_status = 'pending'
+         AND created_at >= $3
+         AND created_at < $4`,
+      [user_id, establishment_id, start, end]
+    );
+    const submissionsToday = submissionsTodayResult.rows[0]?.total || 0;
+    if ((reviewsToday + submissionsToday) >= maxDailyReviews) {
+      throw new ApiError(
+        409,
+        `daily review limit reached for this establishment (${maxDailyReviews} per day)`
+      );
+    }
+  }
+
+  try {
+    const row = await withTransaction(async (client) =>
+      createSubmission(client, {
+        id: review_id,
+        user_id,
+        establishment_id,
+        title,
+        description,
+        stars,
+        price,
+        purchase_url,
+        tags,
+        evidence_images,
+        review_hash,
+        review_timestamp: parsedReviewTimestamp.toISOString(),
+        signer_wallet,
+        signature,
+        signature_nonce,
+        signature_deadline: parsedSignatureDeadline.toISOString(),
+      })
+    );
+    return formatSubmissionResponse(row);
+  } catch (err) {
+    if (err.code === '23505') {
+      if (String(err.constraint || '').includes('review_submissions_pkey')) {
+        throw new ApiError(409, 'review_id already submitted');
+      }
+      if (String(err.constraint || '').includes('review_submissions_review_hash_key')) {
+        throw new ApiError(409, 'review_hash already submitted');
+      }
+      if (String(err.constraint || '').includes('review_submissions_nonce_unique')) {
+        throw new ApiError(409, 'signature nonce already used');
+      }
+    }
+    if (err.code === '23514' || err.code === '23502') {
+      throw new ApiError(400, 'invalid review submission');
+    }
+    throw err;
+  }
+}
+
+async function listMyReviewStatusesService({ userId, page = 1, pageSize = 20 }) {
+  const offset = (page - 1) * pageSize;
+  const submissions = await listSubmissionsByUser({ query }, userId, {
+    limit: pageSize,
+    offset,
+  });
+  return {
+    data: submissions.map(formatSubmissionResponse),
+    meta: { page, page_size: pageSize, total: submissions.length + offset },
+  };
+}
+
+async function listPendingReviewSubmissionsService({
+  page = 1,
+  pageSize = 20,
+  status = 'pending',
+  search = '',
+}) {
+  const offset = (page - 1) * pageSize;
+  const normalizedStatus = String(status || 'pending').toLowerCase();
+  if (!['pending', 'approved', 'rejected', 'all'].includes(normalizedStatus)) {
+    throw new ApiError(400, 'status must be pending, approved, rejected, or all');
+  }
+
+  const { rows, total } = await listForModeration(
+    { query },
+    {
+      status: normalizedStatus,
+      search,
+      limit: pageSize,
+      offset,
+    }
+  );
+
+  return {
+    data: rows.map(formatSubmissionResponse),
+    meta: { page, page_size: pageSize, total },
+  };
+}
+
+async function rejectReviewSubmissionService({ submissionId, actorId, reason = null }) {
+  const updated = await markRejected({ query }, {
+    submissionId,
+    actorId,
+    reason,
+  });
+  if (!updated) {
+    throw new ApiError(409, 'submission is not pending or was not found');
+  }
+  return formatSubmissionResponse(updated);
+}
+
+async function approveReviewSubmissionService({ submissionId, actorId }) {
+  const submission = await findSubmissionById({ query }, submissionId);
+  if (!submission) throw new ApiError(404, 'review submission not found');
+  if (submission.moderation_status !== 'pending') {
+    throw new ApiError(409, 'submission is not pending');
+  }
+
+  const user = await findUserById(submission.user_id);
+  if (!user || !user.wallet_address) {
+    throw new ApiError(400, 'submission user wallet not found');
+  }
+
+  const onChain = await anchorApprovedReviewOnChain({
+    userWallet: user.wallet_address,
+    reviewHash: submission.review_hash,
+    establishmentId: submission.establishment_id,
+  });
+
+  const config = await getCurrentConfig({ query });
+  if (!config) {
+    throw new ApiError(500, 'points configuration missing');
+  }
+
+  const pointsAwarded = computePoints({
+    description: submission.description,
+    stars: submission.stars,
+    price: Number(submission.price),
+    evidenceCount: Array.isArray(submission.evidence_images) ? submission.evidence_images.length : 0,
+    config,
+  });
+
+  const response = await withTransaction(async (client) => {
+    const reviewRow = await createReview(client, {
+      id: submission.id,
+      user_id: submission.user_id,
+      establishment_id: submission.establishment_id,
+      title: submission.title,
+      description: submission.description,
+      stars: submission.stars,
+      price: Number(submission.price),
+      purchase_url: submission.purchase_url,
+      tags: submission.tags,
+      points_awarded: pointsAwarded,
+      review_hash: submission.review_hash,
+    });
+
+    const evidencePayload = (submission.evidence_images || []).map((imageUrl) => ({
+      image_url: imageUrl,
+    }));
+    await createEvidenceBatch(client, {
+      review_id: submission.id,
+      evidence: evidencePayload,
+    });
+
+    await upsertReviewAnchor(client, {
+      review_id: submission.id,
+      tx_hash: onChain.txHash,
+      chain_id: onChain.chainId,
+      block_number: onChain.blockNumber,
+      block_timestamp: onChain.blockTimestamp,
+    });
+
+    const updatedSubmission = await markApproved(client, {
+      submissionId: submission.id,
+      actorId,
+      approvedReviewId: submission.id,
+      txHash: onChain.txHash,
+      chainId: onChain.chainId,
+      blockNumber: onChain.blockNumber,
+      blockTimestamp: onChain.blockTimestamp,
+    });
+
+    return {
+      review: formatReviewResponse(reviewRow, submission.evidence_images || []),
+      submission: formatSubmissionResponse(updatedSubmission),
+    };
+  });
+
+  return response;
+}
+
 module.exports = {
   reviewService: {
     createReview: createReviewService,
+    createReviewSubmission: createReviewSubmissionService,
+    listMyReviewStatuses: listMyReviewStatusesService,
+    listPendingReviewSubmissions: listPendingReviewSubmissionsService,
+    approveReviewSubmission: approveReviewSubmissionService,
+    rejectReviewSubmission: rejectReviewSubmissionService,
     getReviewById: getReviewByIdService,
     listReviews: listReviewsService,
     saveReviewAnchorTx: saveReviewAnchorTxService,
