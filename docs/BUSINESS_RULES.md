@@ -35,12 +35,18 @@ A review:
 
 Validation rules
 - `description` must be at least 1 character long (minimum length is enforced; exact threshold is 1 until specified).
-- `title` is required and must contain at most 12 words.
+- `description` must be at most 2000 characters.
+- `title` is required and validated by character length (word count is not enforced).
+- `title` must be at most 120 characters.
 - `stars` must be between 0 and 5.
 - `price` must be greater than 0 (PEN).
-- `purchase_url` is optional; if provided, it must be a valid URL.
+- `purchase_url` is optional; if provided, it must be a valid `http://` or `https://` URL.
 - `tags` must contain at least one value.
+- `tags` values must contain between 2 and 30 characters.
+- `title`, `description`, and `tags` must not include HTML/script-like content.
+- `title`, `description`, and `tags` must not include emojis.
 - Evidence images must be between 1 and 3.
+- `evidence_images` URLs must use `http://` or `https://`.
 
 ### Evidence
 - User must upload images to validate usage or purchase
