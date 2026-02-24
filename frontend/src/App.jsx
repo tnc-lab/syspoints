@@ -444,9 +444,64 @@ const TAG_COLORS = [
 const parseTokenPayload = (jwtToken) => {
   if (!jwtToken) return null
   try {
-    return JSON.parse(atob(jwtToken.split(".")[1]))
+    const [, payloadPart] = String(jwtToken).split(".")
+    if (!payloadPart) return null
+    const base64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=")
+    return JSON.parse(atob(padded))
   } catch {
     return null
+  }
+}
+
+const getTokenExpiryMs = (jwtToken) => {
+  const payload = parseTokenPayload(jwtToken)
+  const expSeconds = Number(payload?.exp)
+  if (!Number.isFinite(expSeconds)) return null
+  return expSeconds * 1000
+}
+
+const isTokenExpired = (jwtToken, skewMs = 15000) => {
+  const expiryMs = getTokenExpiryMs(jwtToken)
+  if (!expiryMs) return true
+  return expiryMs <= Date.now() + skewMs
+}
+
+const SESSION_STORAGE_KEYS = {
+  token: "syspoints_token",
+  userName: "syspoints_user_name",
+  walletLabel: "syspoints_wallet_label",
+}
+
+const clearStoredSession = () => {
+  if (typeof window === "undefined") return
+  localStorage.removeItem(SESSION_STORAGE_KEYS.token)
+  localStorage.removeItem(SESSION_STORAGE_KEYS.userName)
+  localStorage.removeItem(SESSION_STORAGE_KEYS.walletLabel)
+}
+
+const getInitialSession = () => {
+  if (typeof window === "undefined") {
+    return { token: "", role: "", userName: "", walletLabel: "" }
+  }
+
+  const storedToken = localStorage.getItem(SESSION_STORAGE_KEYS.token) || ""
+  if (!storedToken || isTokenExpired(storedToken)) {
+    clearStoredSession()
+    return { token: "", role: "", userName: "", walletLabel: "" }
+  }
+
+  const payload = parseTokenPayload(storedToken)
+  const role = String(payload?.role || "").trim().toLowerCase()
+  const payloadName = String(payload?.name || "").trim()
+  const userName = (localStorage.getItem(SESSION_STORAGE_KEYS.userName) || payloadName || "").trim()
+  const walletLabel = localStorage.getItem(SESSION_STORAGE_KEYS.walletLabel) || ""
+
+  return {
+    token: storedToken,
+    role,
+    userName,
+    walletLabel,
   }
 }
 
@@ -469,20 +524,13 @@ function App() {
     return fallback || "Wallet"
   }
 
+  const [initialSession] = useState(() => getInitialSession())
   const [walletAddress, setWalletAddress] = useState("")
   const [wrongNetwork, setWrongNetwork] = useState(false)
-  const [token, setToken] = useState(localStorage.getItem("syspoints_token") || "")
-  const [currentUserRole, setCurrentUserRole] = useState(() => {
-    const payload = parseTokenPayload(localStorage.getItem("syspoints_token") || "")
-    return String(payload?.role || "").trim().toLowerCase()
-  })
-  const [walletUserName, setWalletUserName] = useState(() => {
-    const fromStorage = localStorage.getItem("syspoints_user_name") || ""
-    if (fromStorage) return fromStorage
-    const payload = parseTokenPayload(localStorage.getItem("syspoints_token") || "")
-    return payload?.name || ""
-  })
-  const [connectedWalletLabel, setConnectedWalletLabel] = useState(() => localStorage.getItem("syspoints_wallet_label") || "")
+  const [token, setToken] = useState(initialSession.token)
+  const [currentUserRole, setCurrentUserRole] = useState(initialSession.role)
+  const [walletUserName, setWalletUserName] = useState(initialSession.userName)
+  const [connectedWalletLabel, setConnectedWalletLabel] = useState(initialSession.walletLabel)
   const [walletNetworkLabel, setWalletNetworkLabel] = useState("")
   const [authStatus, setAuthStatus] = useState("")
   const [authStatusVisible, setAuthStatusVisible] = useState(false)
@@ -697,9 +745,16 @@ function App() {
     setConnectedWalletLabel("")
     setWalletNetworkLabel("")
     setAuthFlowState("idle")
-    localStorage.removeItem("syspoints_token")
-    localStorage.removeItem("syspoints_user_name")
-    localStorage.removeItem("syspoints_wallet_label")
+    clearStoredSession()
+  }
+
+  const handleSessionExpired = (message = "Tu sesión expiró. Conecta tu wallet e inicia sesión nuevamente.") => {
+    clearSession()
+    setAuthFlowState("expired")
+    setProfileStatus("")
+    setAdminStatus("")
+    setActivePage("reviews")
+    setAuthStatus(message)
   }
 
   useEffect(() => {
@@ -776,7 +831,7 @@ function App() {
       if (!connectedWalletLabel) {
         const detectedLabel = identifyWalletLabel(observedProvider, "Wallet")
         setConnectedWalletLabel(detectedLabel)
-        localStorage.setItem("syspoints_wallet_label", detectedLabel)
+        localStorage.setItem(SESSION_STORAGE_KEYS.walletLabel, detectedLabel)
       }
 
       if (tokenWalletAddress && tokenWalletAddress.toLowerCase() !== nextAddress.toLowerCase()) {
@@ -895,7 +950,8 @@ function App() {
       ...(options.headers || {}),
     }
 
-    if (token) {
+    const hasAuthorizationHeader = Object.keys(headers).some((key) => key.toLowerCase() === "authorization")
+    if (!hasAuthorizationHeader && token) {
       headers.Authorization = `Bearer ${token}`
     }
 
@@ -906,25 +962,28 @@ function App() {
 
     const data = await response.json().catch(() => null)
     if (!response.ok) {
-      throw new Error(data?.error?.message || "Request failed")
+      const message = data?.error?.message || "Request failed"
+      const isAuthError =
+        response.status === 401 ||
+        /invalid token|missing bearer token|session expired|session revoked|unauthorized|401/i.test(String(message || ""))
+      if (isAuthError && token) {
+        handleSessionExpired()
+      }
+      const error = new Error(message)
+      error.status = response.status
+      throw error
     }
     return data
   }
 
   const fetchCurrentUser = async (authToken = token) => {
     if (!authToken) return null
-    const response = await fetch(`${API_BASE}/users/me`, {
+    return apiFetch("/users/me", {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
     })
-
-    const data = await response.json().catch(() => null)
-    if (!response.ok) {
-      throw new Error(data?.error?.message || "Failed to load user profile")
-    }
-    return data
   }
 
   const ensureNetwork = async (providerOverride = null) => {
@@ -966,16 +1025,20 @@ function App() {
   }
 
   const persistSession = (nextToken, fallbackName = "") => {
+    if (!nextToken || isTokenExpired(nextToken)) {
+      handleSessionExpired()
+      return
+    }
     setToken(nextToken)
-    localStorage.setItem("syspoints_token", nextToken)
+    localStorage.setItem(SESSION_STORAGE_KEYS.token, nextToken)
     const payload = parseTokenPayload(nextToken)
     setCurrentUserRole(String(payload?.role || "").trim().toLowerCase())
     const nextName = payload?.name || fallbackName || ""
     setWalletUserName(nextName)
     if (nextName) {
-      localStorage.setItem("syspoints_user_name", nextName)
+      localStorage.setItem(SESSION_STORAGE_KEYS.userName, nextName)
     } else {
-      localStorage.removeItem("syspoints_user_name")
+      localStorage.removeItem(SESSION_STORAGE_KEYS.userName)
     }
   }
 
@@ -989,7 +1052,7 @@ function App() {
     })
     if (user.name) {
       setWalletUserName(user.name)
-      localStorage.setItem("syspoints_user_name", user.name)
+      localStorage.setItem(SESSION_STORAGE_KEYS.userName, user.name)
     }
   }
 
@@ -1089,7 +1152,7 @@ function App() {
       setWalletAddress(address)
       const detectedLabel = identifyWalletLabel(provider, selectedOption.label)
       setConnectedWalletLabel(detectedLabel)
-      localStorage.setItem("syspoints_wallet_label", detectedLabel)
+      localStorage.setItem(SESSION_STORAGE_KEYS.walletLabel, detectedLabel)
       try {
         const connectedNetwork = await (new ethers.BrowserProvider(provider)).getNetwork()
         setWalletNetworkLabel(getNetworkLabel({ chainId: Number(connectedNetwork.chainId), name: connectedNetwork.name }))
@@ -1700,16 +1763,7 @@ function App() {
         evidence_images: [...prev.evidence_images, uploaded.image_url].slice(0, MAX_REVIEW_EVIDENCE_IMAGES),
       }))
     } catch (error) {
-      const message = String(error?.message || "")
-      const isAuthError = /invalid token|missing bearer token|unauthorized|401/i.test(message)
-      if (isAuthError) {
-        setAuthFlowState("expired")
-      }
-      setAuthStatus(
-        isAuthError
-          ? "Tu sesión expiró o no es válida. Conecta tu wallet e inicia sesión nuevamente."
-          : (error?.message || "No se pudo subir la evidencia.")
-      )
+      setAuthStatus(error?.message || "No se pudo subir la evidencia.")
     } finally {
       setUploadingReviewEvidence(false)
     }
@@ -3139,6 +3193,20 @@ function App() {
       setSubmittingReview(false)
     }
   }
+
+  useEffect(() => {
+    if (!token) return
+    const expiresAtMs = getTokenExpiryMs(token)
+    if (!expiresAtMs || expiresAtMs <= Date.now()) {
+      handleSessionExpired()
+      return
+    }
+    const timeoutMs = Math.max(0, expiresAtMs - Date.now())
+    const timeoutId = setTimeout(() => {
+      handleSessionExpired()
+    }, timeoutMs)
+    return () => clearTimeout(timeoutId)
+  }, [token])
 
   useEffect(() => {
     if (!token) return
