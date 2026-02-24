@@ -24,6 +24,7 @@ export default function Header({
   const connectedLabel = walletProviderLabel || walletUserName || "Wallet"
   const navItems = useMemo(() => {
     const items = [
+      { key: "leaderboard", label: "Ranking" },
       { key: "review", label: "Review" },
     ]
 
@@ -134,6 +135,14 @@ export default function Header({
               {navItems.find((item) => item.key === "review").label}
             </button>
           )}
+          {navItems.find((item) => item.key === "leaderboard") && (
+            <button
+              className={`nav-link topbar-review-link ${activePage === "leaderboard" ? "active" : ""}`}
+              onClick={() => handleNavigate("leaderboard")}
+            >
+              {navItems.find((item) => item.key === "leaderboard").label}
+            </button>
+          )}
           <button className="lang-button topbar-lang-button">
             English ▾
           </button>
@@ -142,7 +151,7 @@ export default function Header({
         <div className={`topbar-menu ${menuOpen ? "open" : ""}`}>
           <nav className="topbar-nav">
             {navItems
-              .filter((item) => item.key !== "review")
+              .filter((item) => item.key !== "review" && item.key !== "leaderboard")
               .map((item) => (
                 <button
                   key={item.key}
@@ -162,6 +171,14 @@ export default function Header({
                 onClick={() => handleNavigate("review")}
               >
                 {navItems.find((item) => item.key === "review").label}
+              </button>
+            )}
+            {navItems.find((item) => item.key === "leaderboard") && (
+              <button
+                className={`nav-link topbar-review-link ${activePage === "leaderboard" ? "active" : ""}`}
+                onClick={() => handleNavigate("leaderboard")}
+              >
+                {navItems.find((item) => item.key === "leaderboard").label}
               </button>
             )}
             <button className="lang-button topbar-lang-button">

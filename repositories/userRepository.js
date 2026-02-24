@@ -23,12 +23,12 @@ async function findByWallet(walletAddress) {
   return legacyResult.rows[0] || null;
 }
 
-async function createUser({ id, wallet_address, email, name, avatar_url, role }) {
+async function createUser({ id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode }) {
   const result = await query(
-    `INSERT INTO users (id, wallet_address, email, name, avatar_url, role)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id, wallet_address, email, name, avatar_url, role, created_at`,
-    [id, wallet_address, email, name, avatar_url, role]
+    `INSERT INTO users (id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode)
+     VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, 'wallet'))
+     RETURNING id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode, created_at`,
+    [id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode || null]
   );
   return result.rows[0];
 }
@@ -78,28 +78,29 @@ async function findWalletRecord(address) {
 
 async function listUsers() {
   const result = await query(
-    'SELECT id, wallet_address, email, name, avatar_url, role, created_at FROM users ORDER BY created_at DESC'
+    'SELECT id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode, created_at FROM users ORDER BY created_at DESC'
   );
   return result.rows;
 }
 
 async function findById(id) {
   const result = await query(
-    'SELECT id, wallet_address, email, name, avatar_url, role, created_at FROM users WHERE id = $1',
+    'SELECT id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode, created_at FROM users WHERE id = $1',
     [id]
   );
   return result.rows[0] || null;
 }
 
-async function updateById(id, { name, email, avatar_url }) {
+async function updateById(id, { name, email, avatar_url, leaderboard_display_mode }) {
   const result = await query(
     `UPDATE users
      SET name = $2,
          email = $3,
-         avatar_url = $4
+         avatar_url = $4,
+         leaderboard_display_mode = COALESCE($5, leaderboard_display_mode)
      WHERE id = $1
-     RETURNING id, wallet_address, email, name, avatar_url, role, created_at`,
-    [id, name, email, avatar_url]
+     RETURNING id, wallet_address, email, name, avatar_url, role, leaderboard_display_mode, created_at`,
+    [id, name, email, avatar_url, leaderboard_display_mode || null]
   );
   return result.rows[0] || null;
 }
