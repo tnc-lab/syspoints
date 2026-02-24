@@ -538,7 +538,6 @@ async function listReviews(req, res, next) {
     const page = Number(req.query.page || 1);
     const pageSize = Number(req.query.page_size || 20);
     const establishmentId = req.query.establishment_id || null;
-    const userId = req.query.user_id || null;
     const sort = req.query.sort || null;
 
     if (!Number.isInteger(page) || page < 1) {
@@ -553,10 +552,6 @@ async function listReviews(req, res, next) {
       throw new ApiError(400, 'establishment_id must be a UUID');
     }
 
-    if (userId && !isValidUuid(userId)) {
-      throw new ApiError(400, 'user_id must be a UUID');
-    }
-
     if (sort && sort !== 'stars_desc') {
       throw new ApiError(400, 'sort must be stars_desc');
     }
@@ -565,7 +560,6 @@ async function listReviews(req, res, next) {
       page,
       pageSize,
       establishmentId,
-      userId,
       sort,
     });
 

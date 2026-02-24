@@ -10,7 +10,6 @@ const ALLOWED_AVATAR_MIME = {
   'image/webp': 'webp',
 };
 const MAX_AVATAR_BYTES = 1_500_000;
-const MAX_USER_NICKNAME_CHARS = 10;
 
 async function createUser(req, res, next) {
   try {
@@ -22,9 +21,6 @@ async function createUser(req, res, next) {
 
     if (isNonEmptyString(email) && !isValidEmail(email)) {
       throw new ApiError(400, 'email is invalid');
-    }
-    if (isNonEmptyString(name) && name.trim().length > MAX_USER_NICKNAME_CHARS) {
-      throw new ApiError(400, `name must be at most ${MAX_USER_NICKNAME_CHARS} characters`);
     }
     if (avatar_url != null && avatar_url !== '' && !isValidUrl(avatar_url)) {
       throw new ApiError(400, 'avatar_url must be a valid URL when provided');
@@ -77,32 +73,18 @@ async function updateMe(req, res, next) {
       throw new ApiError(401, 'invalid token');
     }
 
-    const { name, email, avatar_url, leaderboard_display_mode } = req.body || {};
-    const normalizedLeaderboardDisplayMode = isNonEmptyString(leaderboard_display_mode)
-      ? leaderboard_display_mode.trim().toLowerCase()
-      : null;
+    const { name, email, avatar_url } = req.body || {};
     if (email && !isValidEmail(email)) {
       throw new ApiError(400, 'email is invalid');
     }
-    if (isNonEmptyString(name) && name.trim().length > MAX_USER_NICKNAME_CHARS) {
-      throw new ApiError(400, `name must be at most ${MAX_USER_NICKNAME_CHARS} characters`);
-    }
     if (avatar_url != null && avatar_url !== '' && !isValidUrl(avatar_url)) {
       throw new ApiError(400, 'avatar_url must be a valid URL when provided');
-    }
-    if (
-      normalizedLeaderboardDisplayMode != null &&
-      normalizedLeaderboardDisplayMode !== 'wallet' &&
-      normalizedLeaderboardDisplayMode !== 'name'
-    ) {
-      throw new ApiError(400, "leaderboard_display_mode must be 'wallet' or 'name'");
     }
 
     const updatedUser = await userService.updateUserProfile(userId, {
       name: isNonEmptyString(name) ? name.trim() : null,
       email: isNonEmptyString(email) ? email.trim() : null,
       avatar_url: isNonEmptyString(avatar_url) ? avatar_url.trim() : null,
-      leaderboard_display_mode: normalizedLeaderboardDisplayMode,
     });
 
     res.status(200).json(updatedUser);

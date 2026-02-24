@@ -122,21 +122,14 @@ async function upsertReviewAnchor(dbClient, {
   return result.rows[0] || null;
 }
 
-async function listReviews(dbClient, { limit, offset, establishmentId, userId, sort }) {
+async function listReviews(dbClient, { limit, offset, establishmentId, sort }) {
   const values = [];
-  const whereParts = [];
+  let whereClause = '';
 
   if (establishmentId) {
     values.push(establishmentId);
-    whereParts.push(`r.establishment_id = $${values.length}`);
+    whereClause = `WHERE r.establishment_id = $${values.length}`;
   }
-
-  if (userId) {
-    values.push(userId);
-    whereParts.push(`r.user_id = $${values.length}`);
-  }
-
-  const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
 
   const orderClause = sort === 'stars_desc'
     ? 'ORDER BY r.stars DESC, r.created_at DESC'
@@ -183,7 +176,7 @@ async function listReviews(dbClient, { limit, offset, establishmentId, userId, s
     `SELECT COUNT(*)::int AS total
      FROM reviews r
      ${whereClause}`,
-    values.slice(0, values.length - 2)
+    establishmentId ? [establishmentId] : []
   );
 
   return { rows: dataResult.rows, total: countResult.rows[0]?.total || 0 };

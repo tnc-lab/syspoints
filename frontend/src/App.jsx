@@ -4,16 +4,11 @@ import { ethers } from "ethers"
 import Header from "./components/Header"
 import Footer from "./components/Footer"
 import FileUpload from "./components/FileUpload"
-import FullLeaderboardPage from "./components/FullLeaderboardPage"
-import HomeSidebarPanels from "./components/HomeSidebarPanels"
-import LeaderboardUserPage from "./components/LeaderboardUserPage"
 import WalletModal from "./components/WalletModal"
 import { API_BASE, ABI, CHAIN_ID, CONTRACT_ADDRESS, EXPLORER_TX_BASE_URL, RPC_URL } from "./config"
 import "./App.css"
 
 const DEFAULT_PAGE_SIZE = 6
-const FULL_LEADERBOARD_PAGE_SIZE = 20
-const USER_REVIEWS_PAGE_SIZE = 10
 const MAX_ESTABLISHMENT_IMAGE_INPUT_BYTES = 2_000_000
 const ESTABLISHMENT_IMAGE_MAX_DIMENSION = 960
 const MAX_WALLET_LOGO_INPUT_BYTES = 1_000_000
@@ -340,13 +335,6 @@ const truncateWithEllipsis = (value, maxChars) => {
   return `${text.slice(0, maxChars)}...`
 }
 
-const formatShortWalletAddress = (value) => {
-  const wallet = String(value || "").trim()
-  if (!wallet) return ""
-  if (wallet.length <= 10) return wallet
-  return `${wallet.slice(0, 4)}...${wallet.slice(-3)}`
-}
-
 const formatReviewPublishedDateLabel = (value) => {
   if (!value) return ""
   const parsed = new Date(value)
@@ -582,7 +570,6 @@ function App() {
     name: "",
     email: "",
     avatar_url: "",
-    leaderboard_display_mode: "wallet",
   })
 
   const [reviewForm, setReviewForm] = useState({
@@ -640,16 +627,9 @@ function App() {
   const [reviewsMeta, setReviewsMeta] = useState({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0 })
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderMeta, setLeaderMeta] = useState({ page: 1, page_size: 5, total: 0 })
-  const [fullLeaderboard, setFullLeaderboard] = useState([])
-  const [fullLeaderMeta, setFullLeaderMeta] = useState({ page: 1, page_size: FULL_LEADERBOARD_PAGE_SIZE, total: 0 })
-  const [selectedLeaderboardUser, setSelectedLeaderboardUser] = useState(null)
-  const [selectedUserReviews, setSelectedUserReviews] = useState([])
-  const [selectedUserReviewsMeta, setSelectedUserReviewsMeta] = useState({ page: 1, page_size: USER_REVIEWS_PAGE_SIZE, total: 0 })
   const [topEstablishments, setTopEstablishments] = useState([])
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
-  const [loadingFullLeaderboard, setLoadingFullLeaderboard] = useState(false)
-  const [loadingSelectedUserReviews, setLoadingSelectedUserReviews] = useState(false)
   const [loadingTopEstablishments, setLoadingTopEstablishments] = useState(false)
   const [establishments, setEstablishments] = useState([])
   const [reviewsView, setReviewsView] = useState("list")
@@ -1069,7 +1049,6 @@ function App() {
       name: user.name || "",
       email: user.email || "",
       avatar_url: user.avatar_url || "",
-      leaderboard_display_mode: user.leaderboard_display_mode === "name" ? "name" : "wallet",
     })
     if (user.name) {
       setWalletUserName(user.name)
@@ -1884,7 +1863,6 @@ function App() {
           name: profile.name || null,
           email: profile.email || null,
           avatar_url: profile.avatar_url || null,
-          leaderboard_display_mode: profile.leaderboard_display_mode || "wallet",
         }),
       })
       hydrateProfileFromUser(updatedUser)
@@ -2314,43 +2292,6 @@ function App() {
     } finally {
       setLoadingLeaderboard(false)
     }
-  }
-
-  const fetchFullLeaderboard = async (page = 1) => {
-    setLoadingFullLeaderboard(true)
-    try {
-      const result = await apiFetch(`/leaderboard?page=${page}&page_size=${FULL_LEADERBOARD_PAGE_SIZE}`)
-      setFullLeaderboard(result.data || [])
-      setFullLeaderMeta(result.meta || { page, page_size: FULL_LEADERBOARD_PAGE_SIZE, total: 0 })
-    } catch {
-      setFullLeaderboard([])
-    } finally {
-      setLoadingFullLeaderboard(false)
-    }
-  }
-
-  const fetchReviewsByUser = async (targetUserId, page = 1) => {
-    if (!targetUserId) {
-      setSelectedUserReviews([])
-      return
-    }
-    setLoadingSelectedUserReviews(true)
-    try {
-      const result = await apiFetch(`/reviews?user_id=${encodeURIComponent(targetUserId)}&page=${page}&page_size=${USER_REVIEWS_PAGE_SIZE}`)
-      setSelectedUserReviews(result.data || [])
-      setSelectedUserReviewsMeta(result.meta || { page, page_size: USER_REVIEWS_PAGE_SIZE, total: 0 })
-    } catch {
-      setSelectedUserReviews([])
-    } finally {
-      setLoadingSelectedUserReviews(false)
-    }
-  }
-
-  const openLeaderboardUser = (user) => {
-    if (!user?.user_id) return
-    setSelectedLeaderboardUser(user)
-    setActivePage("leaderboard-user")
-    fetchReviewsByUser(user.user_id, 1)
   }
 
   const fetchTopEstablishments = async (page = 1) => {
@@ -3374,11 +3315,6 @@ function App() {
     }
   }, [activePage, isAdmin])
 
-  useEffect(() => {
-    if (activePage !== "leaderboard") return
-    fetchFullLeaderboard(1)
-  }, [activePage])
-
   return (
     <div className="app-shell">
       <Header
@@ -3389,7 +3325,7 @@ function App() {
         isConnected={Boolean(walletAddress && token)}
         isAdmin={Boolean(walletAddress && token && isAdmin)}
         hasWalletProvider={hasWalletProvider}
-        activePage={activePage === "leaderboard-user" ? "leaderboard" : activePage}
+        activePage={activePage}
         onWalletAction={handleWalletAction}
         onNavigate={setActivePage}
       />
@@ -3728,47 +3664,92 @@ function App() {
                 )}
               </section>
 
-              <HomeSidebarPanels
-                loadingLeaderboard={loadingLeaderboard}
-                leaderboard={leaderboard}
-                formatShortWalletAddress={formatShortWalletAddress}
-                getDefaultAvatarUrl={getDefaultAvatarUrl}
-                onViewFullRanking={() => {
-                  setActivePage("leaderboard")
-                  fetchFullLeaderboard(1)
-                }}
-                onSelectUser={openLeaderboardUser}
-                loadingTopEstablishments={loadingTopEstablishments}
-                topEstablishments={topEstablishments}
-              />
+              <div className="sidebar-panels leaderboard-panel">
+                <aside className="panel">
+                  <div className="panel-header">
+                    <h3 className="panel-title">Leaderboard</h3>
+                    <span className="pill">Top</span>
+                  </div>
+                  {loadingLeaderboard ? (
+                    <p>Loading leaderboard...</p>
+                  ) : (
+                    leaderboard.map((entry, index) => (
+                      <div className="leaderboard-entry" key={entry.user_id || index}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                          <strong>#{index + 1}</strong>
+                          <img
+                            src={(entry.avatar_url || "").trim() || getDefaultAvatarUrl(entry.user_id || entry.name || index)}
+                            alt={entry.name || "User"}
+                            style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover", border: "1px solid #e5e7eb" }}
+                          />
+                          <span>{entry.name || "Anon"}</span>
+                        </div>
+                        <div className="pill">{entry.total_points} pts</div>
+                      </div>
+                    ))
+                  )}
+                  <button className="ghost-button" style={{ marginTop: "16px" }}>
+                    View full ranking
+                  </button>
+                </aside>
+
+                <aside className="panel">
+                  <div className="panel-header">
+                    <h3 className="panel-title">Top Establishments</h3>
+                    <span className="pill">Reviews</span>
+                  </div>
+                  {loadingTopEstablishments ? (
+                    <p>Loading top establishments...</p>
+                  ) : topEstablishments.length === 0 ? (
+                    <p>No hay reviews suficientes todavía.</p>
+                  ) : (
+                    topEstablishments.map((entry, index) => {
+                      const stars = Math.round(Number(entry.avg_stars || 0))
+                      return (
+                        <div className="leaderboard-entry" key={entry.id || index}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                            <strong>#{index + 1}</strong>
+                            {(entry.image_url || "").trim() ? (
+                              <img
+                                src={(entry.image_url || "").trim()}
+                                alt={entry.name || "Establishment"}
+                                style={{ width: "34px", height: "34px", borderRadius: "50%", objectFit: "cover", border: "1px solid #e5e7eb" }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: "34px",
+                                  height: "34px",
+                                  borderRadius: "50%",
+                                  border: "1px solid #e5e7eb",
+                                  display: "grid",
+                                  placeItems: "center",
+                                  background: "var(--surface-alt)",
+                                  color: "var(--muted)",
+                                  fontWeight: 700,
+                                  fontSize: "0.78rem",
+                                }}
+                              >
+                                {(entry.name || "E")?.[0] || "E"}
+                              </div>
+                            )}
+                            <span>{entry.name || "Establishment"}</span>
+                          </div>
+                          <div style={{ display: "grid", justifyItems: "end", gap: "3px" }}>
+                            <div className="pill">{Number(entry.review_count || 0)} reviews</div>
+                            <div className="review-stars" style={{ fontSize: "0.82rem" }}>
+                              {"★".repeat(stars)}
+                              {"☆".repeat(5 - stars)} ({Number(entry.avg_stars || 0).toFixed(1)})
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </aside>
+              </div>
             </div>
           </>
-        )}
-
-        {activePage === "leaderboard" && (
-          <FullLeaderboardPage
-            loading={loadingFullLeaderboard}
-            entries={fullLeaderboard}
-            meta={fullLeaderMeta}
-            onPageChange={fetchFullLeaderboard}
-            onSelectUser={openLeaderboardUser}
-            formatShortWalletAddress={formatShortWalletAddress}
-            getDefaultAvatarUrl={getDefaultAvatarUrl}
-          />
-        )}
-
-        {activePage === "leaderboard-user" && selectedLeaderboardUser && (
-          <LeaderboardUserPage
-            user={selectedLeaderboardUser}
-            loadingReviews={loadingSelectedUserReviews}
-            reviews={selectedUserReviews}
-            reviewsMeta={selectedUserReviewsMeta}
-            onPageChange={(page) => fetchReviewsByUser(selectedLeaderboardUser.user_id, page)}
-            onBack={() => setActivePage("leaderboard")}
-            formatShortWalletAddress={formatShortWalletAddress}
-            getDefaultAvatarUrl={getDefaultAvatarUrl}
-            establishmentsById={establishmentsById}
-          />
         )}
 
         {activePage === "review" && (
@@ -4627,7 +4608,6 @@ function App() {
                   className="input"
                   placeholder="Name"
                   value={profile.name}
-                  maxLength={10}
                   onChange={(event) => setProfile({ ...profile, name: event.target.value })}
                 />
                 <FileUpload
@@ -4655,17 +4635,6 @@ function App() {
                   value={profile.email}
                   onChange={(event) => setProfile({ ...profile, email: event.target.value })}
                 />
-                <label style={{ fontSize: "12px", color: "var(--muted)" }}>
-                  Nombre público en leaderboard
-                </label>
-                <select
-                  className="input"
-                  value={profile.leaderboard_display_mode}
-                  onChange={(event) => setProfile({ ...profile, leaderboard_display_mode: event.target.value })}
-                >
-                  <option value="wallet">Wallet corta</option>
-                  <option value="name">Nombre</option>
-                </select>
               </div>
               <button className="primary-button" onClick={saveProfile} disabled={profileBusy}>
                 {profileBusy ? "Guardando..." : "Guardar cambios"}
