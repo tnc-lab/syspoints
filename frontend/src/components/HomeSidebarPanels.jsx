@@ -10,6 +10,8 @@ export default function HomeSidebarPanels({
   onSelectUser,
   loadingTopEstablishments,
   topEstablishments,
+  onViewAllTopEstablishments,
+  onSelectEstablishment,
 }) {
   return (
     <div className="sidebar-panels leaderboard-panel">
@@ -21,7 +23,12 @@ export default function HomeSidebarPanels({
         onViewFullRanking={onViewFullRanking}
         onSelectUser={onSelectUser}
       />
-      <TopEstablishmentsPanel loading={loadingTopEstablishments} entries={topEstablishments} />
+      <TopEstablishmentsPanel
+        loading={loadingTopEstablishments}
+        entries={topEstablishments}
+        onViewAll={onViewAllTopEstablishments}
+        onSelectEstablishment={onSelectEstablishment}
+      />
     </div>
   )
 }
