@@ -335,6 +335,24 @@ const truncateWithEllipsis = (value, maxChars) => {
   return `${text.slice(0, maxChars)}...`
 }
 
+const formatReviewPublishedDateLabel = (value) => {
+  if (!value) return ""
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return ""
+
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const publishedStart = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate())
+  const diffDays = Math.round((todayStart.getTime() - publishedStart.getTime()) / 86_400_000)
+
+  if (diffDays === 1) return "a day ago"
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsed)
+}
+
 const getWalletErrorMessage = (error, fallback = "Wallet connection failed.") => {
   const code = String(error?.code || "")
   const nestedCode = String(error?.info?.error?.code || "")
@@ -567,7 +585,9 @@ function App() {
   const [loadingTopEstablishments, setLoadingTopEstablishments] = useState(false)
   const [establishments, setEstablishments] = useState([])
   const [reviewsView, setReviewsView] = useState("list")
+  const [gridReviewImageIndexById, setGridReviewImageIndexById] = useState({})
   const [selectedReview, setSelectedReview] = useState(null)
+  const [detailEvidenceImageIndex, setDetailEvidenceImageIndex] = useState(0)
   const [loadingSelectedReview, setLoadingSelectedReview] = useState(false)
   const [loadingReviewId, setLoadingReviewId] = useState("")
   const [reviewChainInfo, setReviewChainInfo] = useState({
@@ -1424,6 +1444,38 @@ function App() {
       .split("")
       .reduce((acc, ch) => acc + ch.charCodeAt(0), 0)
     return TAG_COLORS[seed % TAG_COLORS.length]
+  }
+
+  const getReviewGalleryImages = (review) => {
+    const establishmentImage = String(establishmentsById.get(review.establishment_id)?.image_url || "").trim()
+    const evidenceImages = Array.isArray(review.evidence_images)
+      ? review.evidence_images
+        .map((value) => String(value || "").trim())
+        .filter((url) => /^https?:\/\//i.test(url))
+      : []
+    const gallery = []
+    if (/^https?:\/\//i.test(establishmentImage)) gallery.push(establishmentImage)
+    evidenceImages.forEach((url) => {
+      if (!gallery.includes(url)) gallery.push(url)
+    })
+    return gallery
+  }
+
+  const changeGridReviewImage = (reviewId, totalImages, delta) => {
+    if (!reviewId || totalImages <= 1) return
+    setGridReviewImageIndexById((prev) => {
+      const current = Number(prev[reviewId] || 0)
+      const next = (current + delta + totalImages) % totalImages
+      return { ...prev, [reviewId]: next }
+    })
+  }
+
+  const setGridReviewImage = (reviewId, totalImages, targetIndex) => {
+    if (!reviewId || totalImages <= 0) return
+    setGridReviewImageIndexById((prev) => ({
+      ...prev,
+      [reviewId]: ((Number(targetIndex) || 0) + totalImages) % totalImages,
+    }))
   }
 
   const getDefaultAvatarUrl = (seedBase) => {
@@ -3179,6 +3231,10 @@ function App() {
   }, [activePage, selectedReview, readProvider])
 
   useEffect(() => {
+    setDetailEvidenceImageIndex(0)
+  }, [selectedReview?.id])
+
+  useEffect(() => {
     if (!isAdmin) return
     if (activePage === "admin-moderation") {
       fetchPendingModerationReviews()
@@ -3423,18 +3479,76 @@ function App() {
                       <div className="reviews-cards">
                         {reviews.map((review, index) => (
                           <div className="review-card card" key={review.id}>
-                            <div className="card-image-wrap">
-                              {establishmentsById.get(review.establishment_id)?.image_url ? (
-                                <img
-                                  src={establishmentsById.get(review.establishment_id)?.image_url}
-                                  alt={establishmentsById.get(review.establishment_id)?.name || "Establishment"}
-                                  className="card-img"
-                                />
-                              ) : (
-                                <div className="card-img-placeholder">
-                                  <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
-                                </div>
-                              )}
+                            <div className="card-image-wrap card-image-carousel">
+                              {(() => {
+                                const galleryImages = getReviewGalleryImages(review)
+                                const totalImages = galleryImages.length
+                                const currentIndex = totalImages > 0
+                                  ? ((Number(gridReviewImageIndexById[review.id] || 0) % totalImages) + totalImages) % totalImages
+                                  : 0
+
+                                if (totalImages === 0) {
+                                  return (
+                                    <div className="card-img-placeholder">
+                                      <span>{(establishmentsById.get(review.establishment_id)?.name || review.establishment_id || "S")?.[0] || "S"}</span>
+                                    </div>
+                                  )
+                                }
+
+                                return (
+                                  <>
+                                    <div
+                                      className="card-carousel-track"
+                                      style={{ transform: `translateX(-${currentIndex * 100}%)` }}
+                                    >
+                                      {galleryImages.map((imageUrl, imageIndex) => (
+                                        <div className="card-carousel-slide" key={`${review.id}-gallery-${imageIndex}`}>
+                                          <img
+                                            src={imageUrl}
+                                            alt={
+                                              imageIndex === 0
+                                                ? (establishmentsById.get(review.establishment_id)?.name || "Establishment")
+                                                : `Review evidence ${imageIndex}`
+                                            }
+                                            className="card-img"
+                                          />
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {totalImages > 1 && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className="card-carousel-nav prev"
+                                          onClick={() => changeGridReviewImage(review.id, totalImages, -1)}
+                                          aria-label="Previous image"
+                                        >
+                                          ←
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="card-carousel-nav next"
+                                          onClick={() => changeGridReviewImage(review.id, totalImages, 1)}
+                                          aria-label="Next image"
+                                        >
+                                          →
+                                        </button>
+                                        <div className="card-carousel-dots">
+                                          {galleryImages.map((_, dotIndex) => (
+                                            <button
+                                              key={`${review.id}-dot-${dotIndex}`}
+                                              type="button"
+                                              className={`card-carousel-dot ${dotIndex === currentIndex ? "active" : ""}`}
+                                              onClick={() => setGridReviewImage(review.id, totalImages, dotIndex)}
+                                              aria-label={`Go to image ${dotIndex + 1}`}
+                                            />
+                                          ))}
+                                        </div>
+                                      </>
+                                    )}
+                                  </>
+                                )
+                              })()}
                             </div>
                             <div className="card-content">
                               <div className="card-header-row">
@@ -4243,7 +4357,21 @@ function App() {
                       )}
                     </div>
                     <div className="review-content">
-                      <div className="review-title">{selectedReview.title || "Untitled review"}</div>
+                      {(() => {
+                        const publishedLabel = formatReviewPublishedDateLabel(selectedReview.created_at)
+                        return (
+                          <div className="review-detail-title-row">
+                            <div className="review-title" style={{ marginBottom: 0 }}>
+                              {selectedReview.title || "Untitled review"}
+                            </div>
+                            {publishedLabel && (
+                              <span className="review-published-at">
+                                {publishedLabel}
+                              </span>
+                            )}
+                          </div>
+                        )
+                      })()}
                       <div className="review-sub">{establishmentsById.get(selectedReview.establishment_id)?.name || selectedReview.establishment_id}</div>
                       <div className="review-stars" style={{ marginTop: "6px" }}>
                         {"★".repeat(Number(selectedReview.stars) || 0)}
@@ -4255,6 +4383,92 @@ function App() {
                     <strong>Description</strong>
                     <p className="review-detail-text">{selectedReview.description}</p>
                   </div>
+                  {Array.isArray(selectedReview.tags) && selectedReview.tags.length > 0 && (
+                    <div className="review-tags">
+                      {selectedReview.tags.map((tag) => {
+                        const tagColor = getTagColor(tag)
+                        return (
+                          <span
+                            key={`detail-${selectedReview.id}-${tag}`}
+                            className="tag"
+                            style={{ background: tagColor.background, color: tagColor.color }}
+                          >
+                            #{tag}
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {(() => {
+                    const detailEvidenceImages = Array.isArray(selectedReview.evidence_images)
+                      ? selectedReview.evidence_images
+                        .map((value) => String(value || "").trim())
+                        .filter((url) => /^https?:\/\//i.test(url))
+                      : []
+                    const totalImages = detailEvidenceImages.length
+                    const currentIndex = totalImages > 0
+                      ? ((Number(detailEvidenceImageIndex || 0) % totalImages) + totalImages) % totalImages
+                      : 0
+
+                    if (totalImages === 0) return null
+
+                    return (
+                      <div className="review-detail-evidence-carousel">
+                        <strong>Evidencias</strong>
+                        <div className="card-image-wrap card-image-carousel review-detail-carousel-wrap">
+                          <div
+                            className="card-carousel-track"
+                            style={{ transform: `translateX(-${currentIndex * 100}%)` }}
+                          >
+                            {detailEvidenceImages.map((imageUrl, index) => (
+                              <div className="card-carousel-slide" key={`${selectedReview.id}-evidence-${index}`}>
+                                <img
+                                  src={imageUrl}
+                                  alt={`Evidence ${index + 1}`}
+                                  className="card-img"
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          {totalImages > 1 && (
+                            <>
+                              <button
+                                type="button"
+                                className="card-carousel-nav prev"
+                                onClick={() =>
+                                  setDetailEvidenceImageIndex((prev) => (prev - 1 + totalImages) % totalImages)
+                                }
+                                aria-label="Previous evidence"
+                              >
+                                ←
+                              </button>
+                              <button
+                                type="button"
+                                className="card-carousel-nav next"
+                                onClick={() =>
+                                  setDetailEvidenceImageIndex((prev) => (prev + 1) % totalImages)
+                                }
+                                aria-label="Next evidence"
+                              >
+                                →
+                              </button>
+                              <div className="card-carousel-dots">
+                                {detailEvidenceImages.map((_, dotIndex) => (
+                                  <button
+                                    key={`${selectedReview.id}-detail-dot-${dotIndex}`}
+                                    type="button"
+                                    className={`card-carousel-dot ${dotIndex === currentIndex ? "active" : ""}`}
+                                    onClick={() => setDetailEvidenceImageIndex(dotIndex)}
+                                    aria-label={`Go to evidence ${dotIndex + 1}`}
+                                  />
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })()}
                   <div className="chain-proof">
                     <strong>Blockchain proof</strong>
                     <div style={{ marginTop: "8px", display: "grid", gap: "8px" }}>
@@ -4305,34 +4519,6 @@ function App() {
                       )}
                     </div>
                   </div>
-                  {Array.isArray(selectedReview.tags) && selectedReview.tags.length > 0 && (
-                    <div className="review-tags">
-                      {selectedReview.tags.map((tag) => {
-                        const tagColor = getTagColor(tag)
-                        return (
-                          <span
-                            key={`detail-${selectedReview.id}-${tag}`}
-                            className="tag"
-                            style={{ background: tagColor.background, color: tagColor.color }}
-                          >
-                            #{tag}
-                          </span>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {Array.isArray(selectedReview.evidence_images) && selectedReview.evidence_images.length > 0 && (
-                    <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                      {selectedReview.evidence_images.map((imageUrl, index) => (
-                        <img
-                          key={`${selectedReview.id}-evidence-${index}`}
-                          src={imageUrl}
-                          alt={`Evidence ${index + 1}`}
-                          style={{ width: "180px", height: "120px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e5e7eb" }}
-                        />
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
             </section>
