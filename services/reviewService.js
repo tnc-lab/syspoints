@@ -268,12 +268,13 @@ async function getReviewByIdService(id) {
   return formatReviewResponse(review, review.evidence_images || []);
 }
 
-async function listReviewsService({ page, pageSize, establishmentId, sort }) {
+async function listReviewsService({ page, pageSize, establishmentId, userId, sort }) {
   const offset = (page - 1) * pageSize;
   const { rows, total } = await listReviewsRepo({ query }, {
     limit: pageSize,
     offset,
     establishmentId,
+    userId,
     sort,
   });
 
