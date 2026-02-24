@@ -88,7 +88,7 @@ async function resolveOrCreateUserByWallet(walletAddress) {
   let user = await findByWallet(normalizedAddress);
   if (!user) {
     const id = crypto.randomUUID();
-    const short = normalizedAddress.slice(2, 8);
+    const short = normalizedAddress.slice(2, 6);
     user = await createUser({
       id,
       wallet_address: normalizedAddress,
