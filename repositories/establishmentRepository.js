@@ -27,7 +27,7 @@ async function listTopReviewedEstablishments({ limit, offset }) {
      FROM establishments e
      JOIN reviews r ON r.establishment_id = e.id
      GROUP BY e.id
-     ORDER BY review_count DESC, avg_stars DESC, e.created_at DESC
+     ORDER BY avg_stars DESC, review_count DESC, e.created_at DESC
      LIMIT $1 OFFSET $2`,
     [limit, offset]
   );
