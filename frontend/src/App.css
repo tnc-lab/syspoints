@@ -393,6 +393,23 @@
   position: relative;
 }
 
+.card-image-carousel {
+  overflow: hidden;
+}
+
+.card-carousel-track {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  transition: transform 0.28s ease;
+}
+
+.card-carousel-slide {
+  flex: 0 0 100%;
+  width: 100%;
+  height: 100%;
+}
+
 .card-img {
   width: 100%;
   height: 100%;
@@ -407,6 +424,61 @@
   font-size: 3rem;
   font-weight: 700;
   color: #d1d5db;
+}
+
+.card-carousel-nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  z-index: 2;
+}
+
+.card-carousel-nav:hover {
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.card-carousel-nav.prev {
+  left: 10px;
+}
+
+.card-carousel-nav.next {
+  right: 10px;
+}
+
+.card-carousel-dots {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  z-index: 2;
+}
+
+.card-carousel-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  border: none;
+  background: rgba(255, 255, 255, 0.55);
+  cursor: pointer;
+}
+
+.card-carousel-dot.active {
+  background: #fff;
 }
 
 .card-content {
@@ -1276,6 +1348,20 @@
   overflow: hidden;
 }
 
+.review-detail-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-published-at {
+  flex-shrink: 0;
+  font-size: 0.82rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
 .review-actions {
   display: flex;
   flex-direction: column;
@@ -1367,6 +1453,16 @@
   word-break: break-word;
 }
 
+.review-detail-evidence-carousel {
+  display: grid;
+  gap: 8px;
+}
+
+.review-detail-carousel-wrap {
+  height: 280px;
+  border-radius: 12px;
+}
+
 @media (max-width: 680px) {
   .map-search-row {
     grid-template-columns: 1fr;
@@ -1388,5 +1484,9 @@
     flex-direction: row;
     justify-content: space-between;
     width: 100%;
+  }
+
+  .review-detail-carousel-wrap {
+    height: 220px;
   }
 }
