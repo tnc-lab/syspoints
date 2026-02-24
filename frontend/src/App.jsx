@@ -3,8 +3,10 @@ import { ethers } from "ethers"
 
 import Header from "./components/Header"
 import Footer from "./components/Footer"
+import EstablishmentDetailPage from "./components/EstablishmentDetailPage"
 import FileUpload from "./components/FileUpload"
 import FullLeaderboardPage from "./components/FullLeaderboardPage"
+import FullTopEstablishmentsPage from "./components/FullTopEstablishmentsPage"
 import HomeSidebarPanels from "./components/HomeSidebarPanels"
 import LeaderboardUserPage from "./components/LeaderboardUserPage"
 import WalletModal from "./components/WalletModal"
@@ -13,7 +15,9 @@ import "./App.css"
 
 const DEFAULT_PAGE_SIZE = 6
 const FULL_LEADERBOARD_PAGE_SIZE = 20
+const FULL_TOP_ESTABLISHMENTS_PAGE_SIZE = 20
 const USER_REVIEWS_PAGE_SIZE = 10
+const ESTABLISHMENT_DETAIL_REVIEWS_PAGE_SIZE = 10
 const MAX_ESTABLISHMENT_IMAGE_INPUT_BYTES = 2_000_000
 const ESTABLISHMENT_IMAGE_MAX_DIMENSION = 960
 const MAX_WALLET_LOGO_INPUT_BYTES = 1_000_000
@@ -646,11 +650,27 @@ function App() {
   const [selectedUserReviews, setSelectedUserReviews] = useState([])
   const [selectedUserReviewsMeta, setSelectedUserReviewsMeta] = useState({ page: 1, page_size: USER_REVIEWS_PAGE_SIZE, total: 0 })
   const [topEstablishments, setTopEstablishments] = useState([])
+  const [fullTopEstablishments, setFullTopEstablishments] = useState([])
+  const [fullTopEstablishmentsMeta, setFullTopEstablishmentsMeta] = useState({
+    page: 1,
+    page_size: FULL_TOP_ESTABLISHMENTS_PAGE_SIZE,
+    total: 0,
+  })
+  const [selectedEstablishmentDetail, setSelectedEstablishmentDetail] = useState(null)
+  const [establishmentDetailOriginPage, setEstablishmentDetailOriginPage] = useState("reviews")
+  const [establishmentDetailReviews, setEstablishmentDetailReviews] = useState([])
+  const [establishmentDetailReviewsMeta, setEstablishmentDetailReviewsMeta] = useState({
+    page: 1,
+    page_size: ESTABLISHMENT_DETAIL_REVIEWS_PAGE_SIZE,
+    total: 0,
+  })
   const [loadingReviews, setLoadingReviews] = useState(false)
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false)
   const [loadingFullLeaderboard, setLoadingFullLeaderboard] = useState(false)
   const [loadingSelectedUserReviews, setLoadingSelectedUserReviews] = useState(false)
   const [loadingTopEstablishments, setLoadingTopEstablishments] = useState(false)
+  const [loadingFullTopEstablishments, setLoadingFullTopEstablishments] = useState(false)
+  const [loadingEstablishmentDetailReviews, setLoadingEstablishmentDetailReviews] = useState(false)
   const [establishments, setEstablishments] = useState([])
   const [reviewsView, setReviewsView] = useState("list")
   const [gridReviewImageIndexById, setGridReviewImageIndexById] = useState({})
@@ -2365,6 +2385,49 @@ function App() {
     }
   }
 
+  const fetchFullTopEstablishments = async (page = 1) => {
+    setLoadingFullTopEstablishments(true)
+    try {
+      const result = await apiFetch(`/establishments/top-reviewed?page=${page}&page_size=${FULL_TOP_ESTABLISHMENTS_PAGE_SIZE}`)
+      setFullTopEstablishments(result.data || [])
+      setFullTopEstablishmentsMeta(result.meta || { page, page_size: FULL_TOP_ESTABLISHMENTS_PAGE_SIZE, total: 0 })
+    } catch {
+      setFullTopEstablishments([])
+    } finally {
+      setLoadingFullTopEstablishments(false)
+    }
+  }
+
+  const fetchEstablishmentDetailReviews = async (establishmentId, page = 1) => {
+    if (!establishmentId) {
+      setEstablishmentDetailReviews([])
+      setEstablishmentDetailReviewsMeta({ page: 1, page_size: ESTABLISHMENT_DETAIL_REVIEWS_PAGE_SIZE, total: 0 })
+      return
+    }
+    setLoadingEstablishmentDetailReviews(true)
+    try {
+      const result = await apiFetch(
+        `/reviews?establishment_id=${encodeURIComponent(establishmentId)}&page=${page}&page_size=${ESTABLISHMENT_DETAIL_REVIEWS_PAGE_SIZE}&sort=stars_desc`
+      )
+      setEstablishmentDetailReviews(result.data || [])
+      setEstablishmentDetailReviewsMeta(result.meta || { page, page_size: ESTABLISHMENT_DETAIL_REVIEWS_PAGE_SIZE, total: 0 })
+    } catch {
+      setEstablishmentDetailReviews([])
+    } finally {
+      setLoadingEstablishmentDetailReviews(false)
+    }
+  }
+
+  const openEstablishmentDetail = (establishment, originPage = activePage) => {
+    if (!establishment?.id) return
+    const fromCatalog = establishmentsById.get(establishment.id) || null
+    const merged = fromCatalog ? { ...fromCatalog, ...establishment } : establishment
+    setSelectedEstablishmentDetail(merged)
+    setEstablishmentDetailOriginPage(originPage || "reviews")
+    setActivePage("establishment-detail")
+    fetchEstablishmentDetailReviews(establishment.id, 1)
+  }
+
   const fetchEstablishments = async () => {
     try {
       const result = await apiFetch("/establishments")
@@ -3379,6 +3442,11 @@ function App() {
     fetchFullLeaderboard(1)
   }, [activePage])
 
+  useEffect(() => {
+    if (activePage !== "top-establishments") return
+    fetchFullTopEstablishments(1)
+  }, [activePage])
+
   return (
     <div className="app-shell">
       <Header
@@ -3740,6 +3808,11 @@ function App() {
                 onSelectUser={openLeaderboardUser}
                 loadingTopEstablishments={loadingTopEstablishments}
                 topEstablishments={topEstablishments}
+                onViewAllTopEstablishments={() => {
+                  setActivePage("top-establishments")
+                  fetchFullTopEstablishments(1)
+                }}
+                onSelectEstablishment={(entry) => openEstablishmentDetail(entry, "reviews")}
               />
             </div>
           </>
@@ -3768,6 +3841,27 @@ function App() {
             formatShortWalletAddress={formatShortWalletAddress}
             getDefaultAvatarUrl={getDefaultAvatarUrl}
             establishmentsById={establishmentsById}
+          />
+        )}
+
+        {activePage === "top-establishments" && (
+          <FullTopEstablishmentsPage
+            loading={loadingFullTopEstablishments}
+            entries={fullTopEstablishments}
+            meta={fullTopEstablishmentsMeta}
+            onPageChange={fetchFullTopEstablishments}
+            onSelectEstablishment={(entry) => openEstablishmentDetail(entry, "top-establishments")}
+          />
+        )}
+
+        {activePage === "establishment-detail" && selectedEstablishmentDetail && (
+          <EstablishmentDetailPage
+            establishment={selectedEstablishmentDetail}
+            reviews={establishmentDetailReviews}
+            reviewsMeta={establishmentDetailReviewsMeta}
+            loadingReviews={loadingEstablishmentDetailReviews}
+            onPageChange={(page) => fetchEstablishmentDetailReviews(selectedEstablishmentDetail.id, page)}
+            onBack={() => setActivePage(establishmentDetailOriginPage || "reviews")}
           />
         )}
 
