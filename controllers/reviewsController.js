@@ -540,6 +540,8 @@ async function listReviews(req, res, next) {
     const establishmentId = req.query.establishment_id || null;
     const userId = req.query.user_id || null;
     const sort = req.query.sort || null;
+    const rawTag = req.query.tag;
+    const tag = typeof rawTag === 'string' ? rawTag.trim() : null;
 
     if (!Number.isInteger(page) || page < 1) {
       throw new ApiError(400, 'page must be a positive integer');
@@ -560,6 +562,9 @@ async function listReviews(req, res, next) {
     if (sort && sort !== 'stars_desc') {
       throw new ApiError(400, 'sort must be stars_desc');
     }
+    if (tag && tag.length > 30) {
+      throw new ApiError(400, 'tag must be at most 30 characters');
+    }
 
     const result = await reviewService.listReviews({
       page,
@@ -567,6 +572,7 @@ async function listReviews(req, res, next) {
       establishmentId,
       userId,
       sort,
+      tag: tag || null,
     });
 
     res.status(200).json(result);
