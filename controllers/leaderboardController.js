@@ -21,4 +21,22 @@ async function getLeaderboard(req, res, next) {
   }
 }
 
-module.exports = { getLeaderboard };
+async function getLeaderboardUser(req, res, next) {
+  try {
+    const userId = String(req.params?.userId || '').trim();
+    if (!userId) {
+      throw new ApiError(400, 'userId is required');
+    }
+
+    const user = await leaderboardService.getLeaderboardUserById({ userId });
+    if (!user) {
+      throw new ApiError(404, 'user not found');
+    }
+
+    res.status(200).json(user);
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getLeaderboard, getLeaderboardUser };

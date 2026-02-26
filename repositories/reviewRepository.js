@@ -122,7 +122,7 @@ async function upsertReviewAnchor(dbClient, {
   return result.rows[0] || null;
 }
 
-async function listReviews(dbClient, { limit, offset, establishmentId, userId, sort }) {
+async function listReviews(dbClient, { limit, offset, establishmentId, userId, sort, tag }) {
   const values = [];
   const whereParts = [];
 
@@ -134,6 +134,17 @@ async function listReviews(dbClient, { limit, offset, establishmentId, userId, s
   if (userId) {
     values.push(userId);
     whereParts.push(`r.user_id = $${values.length}`);
+  }
+
+  if (tag) {
+    values.push(tag);
+    whereParts.push(
+      `EXISTS (
+        SELECT 1
+        FROM unnest(COALESCE(r.tags, '{}'::text[])) AS t(tag_value)
+        WHERE lower(trim(t.tag_value)) = lower(trim($${values.length}))
+      )`
+    );
   }
 
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -150,6 +161,10 @@ async function listReviews(dbClient, { limit, offset, establishmentId, userId, s
     `SELECT
       r.id,
       r.user_id,
+      u.wallet_address AS user_wallet_address,
+      u.name AS user_name,
+      u.avatar_url AS user_avatar_url,
+      u.leaderboard_display_mode AS user_leaderboard_display_mode,
       r.establishment_id,
       r.title,
       r.description,
@@ -170,10 +185,11 @@ async function listReviews(dbClient, { limit, offset, establishmentId, userId, s
         '{}'::text[]
       ) AS evidence_images
     FROM reviews r
+    LEFT JOIN users u ON u.id = r.user_id
     LEFT JOIN review_evidence re ON re.review_id = r.id
     LEFT JOIN review_anchors ra ON ra.review_id = r.id
     ${whereClause}
-    GROUP BY r.id
+    GROUP BY r.id, u.wallet_address, u.name, u.avatar_url, u.leaderboard_display_mode
     ${orderClause}
     LIMIT $${limitIndex} OFFSET $${offsetIndex}`,
     values

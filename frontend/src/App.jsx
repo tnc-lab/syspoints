@@ -521,6 +521,133 @@ const getInitialSession = () => {
   }
 }
 
+function HomeReviewTags({ reviewId, tags, getTagColor, onTagClick }) {
+  const containerRef = useRef(null)
+  const measureRef = useRef(null)
+  const [visibleCount, setVisibleCount] = useState(0)
+
+  useEffect(() => {
+    const safeTags = Array.isArray(tags) ? tags : []
+    if (!safeTags.length) {
+      setVisibleCount(0)
+      return
+    }
+
+    const computeVisible = () => {
+      const containerNode = containerRef.current
+      const measureNode = measureRef.current
+      if (!containerNode || !measureNode) return
+
+      const tagNodes = Array.from(measureNode.querySelectorAll(".tag"))
+      const maxWidth = containerNode.clientWidth
+      const gap = 6
+      let used = 0
+      let count = 0
+
+      for (const node of tagNodes) {
+        const width = node.getBoundingClientRect().width
+        const nextUsed = count === 0 ? width : used + gap + width
+        if (nextUsed <= maxWidth + 0.5) {
+          used = nextUsed
+          count += 1
+          continue
+        }
+        break
+      }
+
+      setVisibleCount(count)
+    }
+
+    computeVisible()
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", computeVisible)
+      return () => {
+        window.removeEventListener("resize", computeVisible)
+      }
+    }
+
+    const observer = new ResizeObserver(() => computeVisible())
+    if (containerRef.current) observer.observe(containerRef.current)
+    return () => observer.disconnect()
+  }, [tags])
+
+  const allTags = Array.isArray(tags) ? tags : []
+  if (!allTags.length) return <div />
+  const visibleTags = allTags.slice(0, visibleCount)
+
+  return (
+    <>
+      <div ref={containerRef} className="review-tags review-tags-single-line">
+        {visibleTags.map((tag) => {
+          const tagColor = getTagColor(tag)
+          return (
+            <button
+              type="button"
+              key={`${reviewId}-${tag}`}
+              className="tag tag-clickable"
+              onClick={() => onTagClick?.(tag)}
+              title={`Filtrar por #${tag}`}
+              aria-label={`Filtrar por #${tag}`}
+              style={{ background: tagColor.background, color: tagColor.color }}
+            >
+              #{tag}
+            </button>
+          )
+        })}
+      </div>
+      <div ref={measureRef} className="review-tags review-tags-measure" aria-hidden="true">
+        {allTags.map((tag) => {
+          const tagColor = getTagColor(tag)
+          return (
+            <span
+              key={`measure-${reviewId}-${tag}`}
+              className="tag"
+              style={{ background: tagColor.background, color: tagColor.color }}
+            >
+              #{tag}
+            </span>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+function ReviewAuthorBadge({ review, getDefaultAvatarUrl, formatShortWalletAddress, onOpenProfile }) {
+  const userId = String(review?.user_id || "").trim()
+  if (!userId) return null
+
+  const userName = String(review?.user_name || "").trim()
+  const userWallet = String(review?.user_wallet_address || "").trim()
+  const shortWallet = formatShortWalletAddress(userWallet)
+  const fallbackLabel = userName || shortWallet || "Anon"
+  const avatarUrl = String(review?.user_avatar_url || "").trim() || getDefaultAvatarUrl(userId || userWallet || "user")
+  const payload = {
+    user_id: userId,
+    wallet_address: userWallet,
+    name: userName,
+    avatar_url: String(review?.user_avatar_url || "").trim(),
+    leaderboard_display_mode: String(review?.user_leaderboard_display_mode || "wallet"),
+  }
+
+  return (
+    <button
+      type="button"
+      className="review-author-button"
+      onClick={() => onOpenProfile(payload)}
+      title={`Ver perfil de ${fallbackLabel}`}
+      aria-label={`Ver perfil de ${fallbackLabel}`}
+    >
+      {avatarUrl ? (
+        <img src={avatarUrl} alt={fallbackLabel} className="review-author-avatar" />
+      ) : (
+        <span className="review-author-fallback">{fallbackLabel.slice(0, 1).toUpperCase()}</span>
+      )}
+    </button>
+  )
+}
+
 function App() {
   const getNetworkLabel = ({ chainId, name }) => {
     const numericChainId = Number(chainId)
@@ -642,11 +769,13 @@ function App() {
 
   const [reviews, setReviews] = useState([])
   const [reviewsMeta, setReviewsMeta] = useState({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0 })
+  const [selectedReviewTag, setSelectedReviewTag] = useState("")
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderMeta, setLeaderMeta] = useState({ page: 1, page_size: 5, total: 0 })
   const [fullLeaderboard, setFullLeaderboard] = useState([])
   const [fullLeaderMeta, setFullLeaderMeta] = useState({ page: 1, page_size: FULL_LEADERBOARD_PAGE_SIZE, total: 0 })
   const [selectedLeaderboardUser, setSelectedLeaderboardUser] = useState(null)
+  const [leaderboardUserOriginPage, setLeaderboardUserOriginPage] = useState("leaderboard")
   const [selectedUserReviews, setSelectedUserReviews] = useState([])
   const [selectedUserReviewsMeta, setSelectedUserReviewsMeta] = useState({ page: 1, page_size: USER_REVIEWS_PAGE_SIZE, total: 0 })
   const [topEstablishments, setTopEstablishments] = useState([])
@@ -2294,10 +2423,18 @@ function App() {
     }
   }
 
-  const fetchReviews = async (page = 1) => {
+  const fetchReviews = async (page = 1, { tag } = {}) => {
     setLoadingReviews(true)
+    const normalizedTag = typeof tag === "string" ? tag.trim() : String(selectedReviewTag || "").trim()
+    const params = new URLSearchParams({
+      page: String(page),
+      page_size: String(DEFAULT_PAGE_SIZE),
+    })
+    if (normalizedTag) {
+      params.set("tag", normalizedTag)
+    }
     try {
-      const result = await apiFetch(`/reviews?page=${page}&page_size=${DEFAULT_PAGE_SIZE}`)
+      const result = await apiFetch(`/reviews?${params.toString()}`)
       setReviews(result.data || [])
       setReviewsMeta(result.meta || { page, page_size: DEFAULT_PAGE_SIZE, total: 0 })
     } catch {
@@ -2305,6 +2442,18 @@ function App() {
     } finally {
       setLoadingReviews(false)
     }
+  }
+
+  const applyTagFilter = (tag) => {
+    const normalizedTag = String(tag || "").trim()
+    if (!normalizedTag) return
+    setSelectedReviewTag(normalizedTag)
+    fetchReviews(1, { tag: normalizedTag })
+  }
+
+  const clearTagFilter = () => {
+    setSelectedReviewTag("")
+    fetchReviews(1, { tag: "" })
   }
 
   const fetchMyReviewStatuses = async () => {
@@ -2357,8 +2506,22 @@ function App() {
     setLoadingSelectedUserReviews(true)
     try {
       const result = await apiFetch(`/reviews?user_id=${encodeURIComponent(targetUserId)}&page=${page}&page_size=${USER_REVIEWS_PAGE_SIZE}`)
-      setSelectedUserReviews(result.data || [])
-      setSelectedUserReviewsMeta(result.meta || { page, page_size: USER_REVIEWS_PAGE_SIZE, total: 0 })
+      const rows = result.data || []
+      const meta = result.meta || { page, page_size: USER_REVIEWS_PAGE_SIZE, total: 0 }
+      setSelectedUserReviews(rows)
+      setSelectedUserReviewsMeta(meta)
+      setSelectedLeaderboardUser((prev) => {
+        if (!prev || prev.user_id !== targetUserId) return prev
+        const sample = rows[0] || {}
+        return {
+          ...prev,
+          wallet_address: prev.wallet_address || sample.user_wallet_address || "",
+          name: prev.name || sample.user_name || "",
+          avatar_url: prev.avatar_url || sample.user_avatar_url || "",
+          leaderboard_display_mode: prev.leaderboard_display_mode || sample.user_leaderboard_display_mode || "wallet",
+          review_count: Number(meta.total || prev.review_count || 0),
+        }
+      })
     } catch {
       setSelectedUserReviews([])
     } finally {
@@ -2366,10 +2529,33 @@ function App() {
     }
   }
 
-  const openLeaderboardUser = (user) => {
+  const fetchLeaderboardUserSummary = async (targetUserId) => {
+    if (!targetUserId) return
+    try {
+      const summary = await apiFetch(`/leaderboard/user/${encodeURIComponent(targetUserId)}`)
+      setSelectedLeaderboardUser((prev) => {
+        if (!prev || prev.user_id !== targetUserId) return prev
+        return {
+          ...prev,
+          total_points: Number(summary?.total_points || 0),
+          review_count: Number(summary?.review_count || 0),
+          wallet_address: String(summary?.wallet_address || prev.wallet_address || ""),
+          name: String(summary?.name || prev.name || ""),
+          avatar_url: String(summary?.avatar_url || prev.avatar_url || ""),
+          leaderboard_display_mode: String(summary?.leaderboard_display_mode || prev.leaderboard_display_mode || "wallet"),
+        }
+      })
+    } catch {
+      // Keep existing payload if summary endpoint is unavailable.
+    }
+  }
+
+  const openLeaderboardUser = (user, originPage = "leaderboard") => {
     if (!user?.user_id) return
     setSelectedLeaderboardUser(user)
+    setLeaderboardUserOriginPage(originPage)
     setActivePage("leaderboard-user")
+    fetchLeaderboardUserSummary(user.user_id)
     fetchReviewsByUser(user.user_id, 1)
   }
 
@@ -2586,44 +2772,37 @@ function App() {
 
     setImageSuggestions({ loading: true, error: "", items: [], selected: "" })
     const localPlaceholder = buildLocalPlaceholderImage({ title: candidate.name })
-    const existingDbImages = [...new Set(
-      establishments
-        .map((item) => String(item?.image_url || "").trim())
-        .filter((url) => /^https?:\/\//i.test(url))
-    )]
-
-    try {
-      const query = [candidate.category || establishmentCategory, candidate.name, candidate.address].filter(Boolean).join(" ").trim()
-      const response = await apiFetch("/establishments/suggest-images", {
-        method: "POST",
-        body: JSON.stringify({
-          query,
-          category: candidate.category || establishmentCategory || "Map Place",
-        }),
-      })
-      const items = Array.isArray(response?.data)
-        ? response.data
+    const selectedCategory = String(establishmentCategory || "").trim()
+    const isGlobalCategory = selectedCategory === "Others"
+    const normalizedSelectedCategory = selectedCategory.toLowerCase()
+    const existingDbImages = isGlobalCategory
+      ? []
+      : [...new Set(
+          establishments
+            .filter((item) => {
+              const itemCategory = String(item?.category || "").trim().toLowerCase()
+              return normalizedSelectedCategory ? itemCategory === normalizedSelectedCategory : true
+            })
             .map((item) => String(item?.image_url || "").trim())
             .filter((url) => /^https?:\/\//i.test(url))
-            .slice(0, 40)
-        : []
+        )]
 
-      const normalizedItems = [...new Set([...existingDbImages, ...items, localPlaceholder].filter(Boolean))]
+    if (isGlobalCategory) {
       setImageSuggestions({
         loading: false,
-        error: normalizedItems.length ? "" : "No se pudieron cargar imágenes sugeridas.",
-        items: normalizedItems,
-        selected: normalizedItems[0] || "",
+        error: "",
+        items: localPlaceholder ? [localPlaceholder] : [],
+        selected: localPlaceholder || "",
       })
-    } catch (error) {
-      const fallbackItems = [...new Set([...existingDbImages, localPlaceholder].filter(Boolean))]
-      setImageSuggestions({
-        loading: false,
-        error: fallbackItems.length ? "" : (error?.message || "No se pudieron cargar imágenes sugeridas."),
-        items: fallbackItems,
-        selected: fallbackItems[0] || "",
-      })
+      return
     }
+    const filteredItems = [...new Set([...existingDbImages, localPlaceholder].filter(Boolean))]
+    setImageSuggestions({
+      loading: false,
+      error: filteredItems.length ? "" : "No se encontraron imágenes para este rubro.",
+      items: filteredItems,
+      selected: filteredItems[0] || "",
+    })
   }
 
   const pickLocationCandidate = async (candidate) => {
@@ -3595,6 +3774,16 @@ function App() {
                       </button>
                     </div>
                     <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
+                      {selectedReviewTag && (
+                        <>
+                          <span className="pill" style={{ alignSelf: "center" }}>
+                            Tag: #{selectedReviewTag}
+                          </span>
+                          <button className="ghost-button" onClick={clearTagFilter}>
+                            Limpiar
+                          </button>
+                        </>
+                      )}
                       <button
                         className="ghost-button"
                         disabled={reviewsMeta.page <= 1}
@@ -3640,26 +3829,26 @@ function App() {
                                   )}
                                 </div>
                                 <div className="review-content">
-                                  <div className="review-title preview">{review.title || "Untitled review"}</div>
+                                  <div className="review-title-with-author">
+                                    <ReviewAuthorBadge
+                                      review={review}
+                                      getDefaultAvatarUrl={getDefaultAvatarUrl}
+                                      formatShortWalletAddress={formatShortWalletAddress}
+                                      onOpenProfile={(userPayload) => openLeaderboardUser(userPayload, "reviews")}
+                                    />
+                                    <div className="review-title preview review-title-text">{review.title || "Untitled review"}</div>
+                                  </div>
                                   <div className="review-sub preview">
                                     {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
                                   </div>
-                                  {Array.isArray(review.tags) && review.tags.length > 0 && (
-                                    <div className="review-tags" style={{ marginTop: "8px" }}>
-                                      {review.tags.map((tag) => {
-                                        const tagColor = getTagColor(tag)
-                                        return (
-                                          <span
-                                            key={`${review.id}-${tag}`}
-                                            className="tag"
-                                            style={{ background: tagColor.background, color: tagColor.color }}
-                                          >
-                                            #{tag}
-                                          </span>
-                                        )
-                                      })}
-                                    </div>
-                                  )}
+                                  <div style={{ marginTop: "8px" }}>
+                                    <HomeReviewTags
+                                      reviewId={review.id}
+                                      tags={review.tags}
+                                      getTagColor={getTagColor}
+                                      onTagClick={applyTagFilter}
+                                    />
+                                  </div>
                                 </div>
                               </div>
                             </div>
@@ -3751,37 +3940,52 @@ function App() {
                               })()}
                             </div>
                             <div className="card-content">
-                              <div className="card-header-row">
-                                <div className="review-title preview">{review.title || "Untitled review"}</div>
-                                <div className="review-stars">
-                                  {Number(review.stars) || 0} ★
+                              <div className="card-meta-layout">
+                                <div className="card-author-col">
+                                  <ReviewAuthorBadge
+                                    review={review}
+                                    getDefaultAvatarUrl={getDefaultAvatarUrl}
+                                    formatShortWalletAddress={formatShortWalletAddress}
+                                    onOpenProfile={(userPayload) => openLeaderboardUser(userPayload, "reviews")}
+                                  />
                                 </div>
-                              </div>
-                              <div className="review-sub" style={{ fontWeight: 600, color: "var(--primary)", fontSize: "0.85rem", marginBottom: "6px" }}>
-                                {establishmentsById.get(review.establishment_id)?.name || "Unknown Place"}
-                              </div>
-                              <div className="review-sub card-desc preview">
-                                {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
+                                <div className="card-meta-stack">
+                                  <div className="review-title preview review-title-text">{review.title || "Untitled review"}</div>
+                                  <button
+                                    type="button"
+                                    className="review-establishment-link"
+                                    onClick={() => {
+                                      const establishment = establishmentsById.get(review.establishment_id)
+                                      if (!establishment?.id) return
+                                      openEstablishmentDetail(establishment, "reviews")
+                                    }}
+                                  >
+                                    {establishmentsById.get(review.establishment_id)?.name || "Unknown Place"}
+                                  </button>
+                                  <div className="review-stars review-stars-classic">
+                                    {(() => {
+                                      const stars = Math.max(0, Math.min(5, Number(review.stars) || 0))
+                                      return (
+                                        <>
+                                          <span className="review-stars-filled">{"★".repeat(stars)}</span>
+                                          <span className="review-stars-empty">{"★".repeat(5 - stars)}</span>
+                                        </>
+                                      )
+                                    })()}
+                                  </div>
+                                  <div className="review-sub card-desc preview">
+                                    {truncateWithEllipsis(review.description, HOME_REVIEW_DESCRIPTION_MAX_CHARS)}
+                                  </div>
+                                </div>
                               </div>
                               
                               <div className="card-footer">
-                                {Array.isArray(review.tags) && review.tags.length > 0 ? (
-                                  <div className="review-tags">
-                                    {review.tags.slice(0, 3).map((tag) => {
-                                      const tagColor = getTagColor(tag)
-                                      return (
-                                        <span
-                                          key={`${review.id}-${tag}`}
-                                          className="tag"
-                                          style={{ background: tagColor.background, color: tagColor.color }}
-                                        >
-                                          #{tag}
-                                        </span>
-                                      )
-                                    })}
-                                    {review.tags.length > 3 && <span className="tag" style={{background: "#f3f4f6"}}>+{review.tags.length - 3}</span>}
-                                  </div>
-                                ) : <div />}
+                                <HomeReviewTags
+                                  reviewId={review.id}
+                                  tags={review.tags}
+                                  getTagColor={getTagColor}
+                                  onTagClick={applyTagFilter}
+                                />
                                 
                                 <button className="primary-button alt watch-button" style={{ width: "100%", marginTop: "12px", padding: "8px" }} onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
                                   {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "See more"}
@@ -3837,7 +4041,8 @@ function App() {
             reviews={selectedUserReviews}
             reviewsMeta={selectedUserReviewsMeta}
             onPageChange={(page) => fetchReviewsByUser(selectedLeaderboardUser.user_id, page)}
-            onBack={() => setActivePage("leaderboard")}
+            onBack={() => setActivePage(leaderboardUserOriginPage || "leaderboard")}
+            backLabel={leaderboardUserOriginPage === "reviews" ? "← Back to reviews" : "← Back to ranking"}
             formatShortWalletAddress={formatShortWalletAddress}
             getDefaultAvatarUrl={getDefaultAvatarUrl}
             establishmentsById={establishmentsById}
@@ -4065,7 +4270,7 @@ function App() {
                                   }}
                                   disabled={locationSearch.resolving}
                                 />
-                                Usar imagen existente (DB)
+                                {establishmentCategory === "Others" ? "Usar imagen por defecto" : "Usar imagen existente (DB)"}
                               </label>
                               <label style={{ display: "inline-flex", gap: "6px", alignItems: "center", fontSize: "12px", color: "var(--muted)" }}>
                                 <input
@@ -4676,11 +4881,6 @@ function App() {
                               <a href={`${explorerBaseUrl}/tx/${reviewChainInfo.txHash}`} target="_blank" rel="noreferrer">
                                 View transaction on explorer
                               </a>
-                              <div>
-                                Explorer tx URL:
-                                {" "}
-                                <code style={{ wordBreak: "break-all" }}>{`${explorerBaseUrl}/tx/${reviewChainInfo.txHash}`}</code>
-                              </div>
                             </>
                           )}
                         </div>
