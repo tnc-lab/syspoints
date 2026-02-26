@@ -1,5 +1,5 @@
 const { query } = require('../db');
-const { listLeaderboard } = require('../repositories/leaderboardRepository');
+const { listLeaderboard, findLeaderboardUserById } = require('../repositories/leaderboardRepository');
 
 async function getLeaderboard({ page, pageSize }) {
   const offset = (page - 1) * pageSize;
@@ -15,8 +15,13 @@ async function getLeaderboard({ page, pageSize }) {
   };
 }
 
+async function getLeaderboardUserById({ userId }) {
+  return findLeaderboardUserById({ query }, userId);
+}
+
 module.exports = {
   leaderboardService: {
     getLeaderboard,
+    getLeaderboardUserById,
   },
 };

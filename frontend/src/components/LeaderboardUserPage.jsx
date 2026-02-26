@@ -7,6 +7,7 @@ export default function LeaderboardUserPage({
   reviewsMeta,
   onPageChange,
   onBack,
+  backLabel,
   formatShortWalletAddress,
   getDefaultAvatarUrl,
   establishmentsById,
@@ -24,7 +25,7 @@ export default function LeaderboardUserPage({
       <section className="panel leaderboard-full-panel">
         <div className="panel-header">
           <h3 className="panel-title">User Profile</h3>
-          <button className="ghost-button" onClick={onBack}>← Back to ranking</button>
+          <button className="ghost-button" onClick={onBack}>{backLabel || "← Back"}</button>
         </div>
 
         <div className="leaderboard-user-header">

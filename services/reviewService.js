@@ -63,6 +63,10 @@ function formatReviewResponse(reviewRow, evidenceImages) {
   return {
     id: reviewRow.id,
     user_id: reviewRow.user_id,
+    user_wallet_address: reviewRow.user_wallet_address || '',
+    user_name: reviewRow.user_name || '',
+    user_avatar_url: reviewRow.user_avatar_url || '',
+    user_leaderboard_display_mode: reviewRow.user_leaderboard_display_mode || 'wallet',
     establishment_id: reviewRow.establishment_id,
     title: reviewRow.title,
     description: reviewRow.description,
@@ -268,7 +272,7 @@ async function getReviewByIdService(id) {
   return formatReviewResponse(review, review.evidence_images || []);
 }
 
-async function listReviewsService({ page, pageSize, establishmentId, userId, sort }) {
+async function listReviewsService({ page, pageSize, establishmentId, userId, sort, tag }) {
   const offset = (page - 1) * pageSize;
   const { rows, total } = await listReviewsRepo({ query }, {
     limit: pageSize,
@@ -276,6 +280,7 @@ async function listReviewsService({ page, pageSize, establishmentId, userId, sor
     establishmentId,
     userId,
     sort,
+    tag,
   });
 
   const data = rows.map((review) =>
