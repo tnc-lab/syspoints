@@ -1,6 +1,7 @@
 node_modules
 .env
 uploads
+frontend/public/i18n.base.json
 
 # Hardhat files
 /cache

@@ -2,11 +2,17 @@ import { getMedalClass } from "./leaderboardUtils"
 
 const truncateName = (value, max = 10) => String(value || "Establishment").trim().slice(0, max) || "Establishment"
 
-export default function TopEstablishmentsPanel({ loading, entries, onViewAll, onSelectEstablishment }) {
+export default function TopEstablishmentsPanel({
+  t = (key) => key,
+  loading,
+  entries,
+  onViewAll,
+  onSelectEstablishment,
+}) {
   return (
     <aside className="panel">
       <div className="panel-header">
-        <h3 className="panel-title">Top Establishments</h3>
+        <h3 className="panel-title">{t("home.topEstablishments")}</h3>
         <span className="pill">Top</span>
       </div>
       {loading ? (

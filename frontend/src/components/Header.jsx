@@ -5,11 +5,14 @@ export default function Header({
   walletProviderLabel,
   walletNetworkLabel,
   walletUserName,
+  locale = "es",
+  t = (key) => key,
   isConnected,
   isAdmin,
   hasWalletProvider,
   onWalletAction,
   onNavigate,
+  onToggleLocale = () => {},
   activePage,
 }) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -21,28 +24,28 @@ export default function Header({
   const shortAddress = visibleWalletAddress
     ? `${visibleWalletAddress.slice(0, 6)}...${visibleWalletAddress.slice(-4)}`
     : ""
-  const connectedLabel = walletProviderLabel || walletUserName || "Wallet"
+  const connectedLabel = walletProviderLabel || walletUserName || t("wallet.providerFallback")
   const navItems = useMemo(() => {
     const items = [
-      { key: "leaderboard", label: "Ranking" },
-      { key: "review", label: "Review" },
+      { key: "leaderboard", label: t("nav.ranking") },
+      { key: "review", label: t("nav.review") },
     ]
 
     if (isConnected) {
-      items.push({ key: "profile", label: "Perfil" })
+      items.push({ key: "profile", label: t("nav.profile") })
     }
 
     if (isAdmin) {
       items.push(
-        { key: "admin-moderation", label: "Moderación" },
-        { key: "admin-establishments", label: "Nuevo establishment" },
-        { key: "admin-users", label: "Usuarios" },
-        { key: "admin-config", label: "Config" }
+        { key: "admin-moderation", label: t("nav.adminModeration") },
+        { key: "admin-establishments", label: t("nav.adminNewEstablishment") },
+        { key: "admin-users", label: t("nav.adminUsers") },
+        { key: "admin-config", label: t("nav.adminConfig") }
       )
     }
 
     return items
-  }, [isAdmin, isConnected])
+  }, [isAdmin, isConnected, t])
 
   useEffect(() => {
     setMenuOpen(false)
@@ -108,6 +111,8 @@ export default function Header({
     }
   }
 
+  const localeSwitchLabel = locale === "es" ? t("language.current.es") : t("language.current.en")
+
   return (
     <header className="topbar">
       <div className="topbar-inner">
@@ -143,8 +148,8 @@ export default function Header({
               {navItems.find((item) => item.key === "leaderboard").label}
             </button>
           )}
-          <button className="lang-button topbar-lang-button">
-            English ▾
+          <button className="lang-button topbar-lang-button" onClick={onToggleLocale}>
+            {localeSwitchLabel}
           </button>
         </div>
 
@@ -181,13 +186,13 @@ export default function Header({
                 {navItems.find((item) => item.key === "leaderboard").label}
               </button>
             )}
-            <button className="lang-button topbar-lang-button">
-              English ▾
+            <button className="lang-button topbar-lang-button" onClick={onToggleLocale}>
+              {localeSwitchLabel}
             </button>
             <div className="wallet-menu-wrap" ref={walletRef}>
-              <button className="primary-button topbar-wallet-button" onClick={handleWalletClick} title={visibleWalletAddress || "Login"} aria-expanded={walletOpen}>
+              <button className="primary-button topbar-wallet-button" onClick={handleWalletClick} title={visibleWalletAddress || t("wallet.login")} aria-expanded={walletOpen}>
                 <span className="wallet-trigger-main">
-                  <span className="wallet-trigger-label">{isConnected ? connectedLabel : "Login"}</span>
+                  <span className="wallet-trigger-label">{isConnected ? connectedLabel : t("wallet.login")}</span>
                   {isConnected ? <span className="wallet-trigger-address">{shortAddress}</span> : null}
                 </span>
                 {isConnected ? <span className="wallet-trigger-caret">⌄</span> : null}
@@ -197,18 +202,18 @@ export default function Header({
                 <div className="wallet-dropdown">
                   <div className="wallet-dropdown-header">
                     <strong>{connectedLabel}</strong>
-                    <span className="wallet-net-chip">{walletNetworkLabel || "Unknown"}</span>
+                    <span className="wallet-net-chip">{walletNetworkLabel || t("wallet.networkUnknown")}</span>
                   </div>
                   <div className="wallet-dropdown-box">
-                    <div className="wallet-dropdown-address-label">Address</div>
+                    <div className="wallet-dropdown-address-label">{t("wallet.address")}</div>
                     <div className="wallet-dropdown-address">{walletAddress}</div>
                   </div>
                   <div className="wallet-dropdown-actions">
                     <button className="ghost-button wallet-copy-btn" onClick={handleCopyAddress}>
-                      {copied ? "Copied" : "Copy"}
+                      {copied ? t("wallet.copied") : t("wallet.copy")}
                     </button>
                     <button className="ghost-button wallet-disconnect-btn" onClick={onWalletAction}>
-                      Disconnect
+                      {t("wallet.disconnect")}
                     </button>
                   </div>
                 </div>

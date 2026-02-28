@@ -1,6 +1,15 @@
 import { useRef, useState } from "react"
 
-export default function FileUpload({ accept, onFile, disabled = false, multiple = false, buttonText = "Seleccionar imagen", className = "", buttonClass = "ghost-button" }) {
+export default function FileUpload({
+  accept,
+  onFile,
+  disabled = false,
+  multiple = false,
+  buttonText = "Seleccionar imagen",
+  emptyText = "No file selected",
+  className = "",
+  buttonClass = "ghost-button",
+}) {
   const inputRef = useRef(null)
   const [name, setName] = useState("")
 
@@ -39,7 +48,7 @@ export default function FileUpload({ accept, onFile, disabled = false, multiple 
       <button type="button" className={buttonClass} onClick={handleClick} disabled={disabled}>
         {buttonText}
       </button>
-      <span style={{ fontSize: "0.95rem", color: "#6b7280" }}>{name || "No file selected"}</span>
+      <span style={{ fontSize: "0.95rem", color: "#6b7280" }}>{name || emptyText}</span>
     </div>
   )
 }

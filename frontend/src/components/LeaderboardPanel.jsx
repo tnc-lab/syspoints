@@ -1,6 +1,7 @@
 import { getMedalClass, resolveDisplayLabel } from "./leaderboardUtils"
 
 export default function LeaderboardPanel({
+  t = (key) => key,
   loading,
   entries,
   formatShortWalletAddress,
@@ -11,7 +12,7 @@ export default function LeaderboardPanel({
   return (
     <aside className="panel">
       <div className="panel-header">
-        <h3 className="panel-title">Leaderboard</h3>
+        <h3 className="panel-title">{t("home.leaderboard")}</h3>
         <span className="pill">Top</span>
       </div>
       {loading ? (

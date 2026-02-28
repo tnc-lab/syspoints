@@ -11,6 +11,7 @@ import HomeSidebarPanels from "./components/HomeSidebarPanels"
 import LeaderboardUserPage from "./components/LeaderboardUserPage"
 import WalletModal from "./components/WalletModal"
 import { API_BASE, ABI, CHAIN_ID, CONTRACT_ADDRESS, EXPLORER_TX_BASE_URL, RPC_URL } from "./config"
+import { createTranslator, getStoredLocale, persistLocale } from "./i18n"
 import "./App.css"
 
 const DEFAULT_PAGE_SIZE = 6
@@ -848,6 +849,7 @@ function App() {
   const [moderationSearchApplied, setModerationSearchApplied] = useState("")
   const [adminUsers, setAdminUsers] = useState([])
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(false)
+  const [locale, setLocale] = useState(() => getStoredLocale())
   const [pointsConfig, setPointsConfig] = useState({
     image_points_yes: 0,
     image_points_no: 0,
@@ -866,10 +868,12 @@ function App() {
     search_saved_establishments_enabled: true,
     allow_global_category_search: true,
     require_profile_completion: false,
+    i18n_translations_json: "",
   })
   const [loadingPointsConfig, setLoadingPointsConfig] = useState(false)
   const [uploadingDefaultAvatar, setUploadingDefaultAvatar] = useState(false)
   const [uploadingWalletLogoKey, setUploadingWalletLogoKey] = useState("")
+  const [uploadingI18nFile, setUploadingI18nFile] = useState(false)
   const [newEstablishment, setNewEstablishment] = useState({
     name: "",
     category: "",
@@ -929,6 +933,21 @@ function App() {
     if (!value) return ""
     return value.replace(/\/tx\/?$/i, "").replace(/\/+$/, "")
   }, [])
+  const { t, translationsError } = useMemo(
+    () =>
+      createTranslator({
+        locale,
+        translationsJson: pointsConfig.i18n_translations_json,
+      }),
+    [locale, pointsConfig.i18n_translations_json]
+  )
+  const tf = (key, vars = {}) => {
+    const template = String(t(key))
+    return Object.entries(vars).reduce(
+      (acc, [name, value]) => acc.replaceAll(`{${name}}`, String(value)),
+      template
+    )
+  }
 
   const clearSession = () => {
     setToken("")
@@ -948,6 +967,14 @@ function App() {
     setActivePage("reviews")
     setAuthStatus(message)
   }
+
+  const toggleLocale = () => {
+    setLocale((prev) => (prev === "es" ? "en" : "es"))
+  }
+
+  useEffect(() => {
+    persistLocale(locale)
+  }, [locale])
 
   useEffect(() => {
     const updateNetwork = async () => {
@@ -1502,41 +1529,41 @@ function App() {
   const goToNextWizardStep = (currentStep, nextStep) => {
     if (currentStep === 1) {
       if (!hasSelectedCategory) {
-        setReviewWizardStatus("Debes seleccionar el rubro antes de continuar.")
+        setReviewWizardStatus(t("review.validation.selectCategory"))
         return
       }
     }
 
     if (currentStep === 2) {
       if (!locationSearch.selected) {
-        setReviewWizardStatus("Debes seleccionar un establecimiento para continuar.")
+        setReviewWizardStatus(t("review.validation.selectEstablishment"))
         return
       }
       if (!String(locationSearch.selected?.name || "").trim()) {
-        setReviewWizardStatus("Debes ingresar el nombre del establecimiento antes de continuar.")
+        setReviewWizardStatus(t("review.validation.establishmentNameRequired"))
         return
       }
       if (!hasConfirmedEstablishment) {
-        setReviewWizardStatus("Debes confirmar y guardar el establecimiento seleccionado antes de continuar.")
+        setReviewWizardStatus(t("review.validation.confirmEstablishment"))
         return
       }
     }
 
     if (currentStep === 3) {
       if (!normalizedReviewTitle) {
-        setReviewWizardStatus("Debes ingresar el título de la reseña antes de continuar.")
+        setReviewWizardStatus(t("review.validation.titleRequired"))
         return
       }
       if (normalizedReviewTitle.length > MAX_REVIEW_TITLE_CHARS) {
-        setReviewWizardStatus(`El título debe tener máximo ${MAX_REVIEW_TITLE_CHARS} caracteres.`)
+        setReviewWizardStatus(tf("review.validation.titleMaxChars", { max: MAX_REVIEW_TITLE_CHARS }))
         return
       }
       if (containsUnsafeHtmlLikeContent(normalizedReviewTitle)) {
-        setReviewWizardStatus("El título no puede contener HTML o scripts.")
+        setReviewWizardStatus(t("review.validation.titleNoHtml"))
         return
       }
       if (containsReviewEmoji(normalizedReviewTitle)) {
-        setReviewWizardStatus("El título no puede contener emojis.")
+        setReviewWizardStatus(t("review.validation.titleNoEmoji"))
         return
       }
     }
@@ -1544,30 +1571,30 @@ function App() {
     if (currentStep === 4) {
       const normalizedDescription = normalizeReviewText(reviewForm.description)
       if (!normalizedDescription) {
-        setReviewWizardStatus("Debes ingresar una descripción antes de continuar.")
+        setReviewWizardStatus(t("review.validation.descriptionRequired"))
         return
       }
       if (normalizedDescription.length > MAX_REVIEW_DESCRIPTION_CHARS) {
-        setReviewWizardStatus(`La descripción debe tener máximo ${MAX_REVIEW_DESCRIPTION_CHARS} caracteres.`)
+        setReviewWizardStatus(tf("review.validation.descriptionMaxChars", { max: MAX_REVIEW_DESCRIPTION_CHARS }))
         return
       }
       if (containsUnsafeHtmlLikeContent(normalizedDescription)) {
-        setReviewWizardStatus("La descripción no puede contener HTML o scripts.")
+        setReviewWizardStatus(t("review.validation.descriptionNoHtml"))
         return
       }
       if (containsReviewEmoji(normalizedDescription)) {
-        setReviewWizardStatus("La descripción no puede contener emojis.")
+        setReviewWizardStatus(t("review.validation.descriptionNoEmoji"))
         return
       }
     }
 
     if (currentStep === 8) {
       if (!parsedReviewTags.length) {
-        setReviewWizardStatus("Debes ingresar al menos un tag.")
+        setReviewWizardStatus(t("review.validation.tagsRequired"))
         return
       }
       if (maxReviewTags > 0 && parsedReviewTags.length > maxReviewTags) {
-        setReviewWizardStatus(`Excediste el máximo de ${maxReviewTags} tags.`)
+        setReviewWizardStatus(tf("review.validation.tagsMaxExceeded", { maxTags: maxReviewTags }))
         return
       }
       const invalidTag = parsedReviewTags.find((tag) => {
@@ -1577,7 +1604,7 @@ function App() {
       })
       if (invalidTag) {
         setReviewWizardStatus(
-          `Tag inválido: "${invalidTag}". Usa solo letras/números (2-${MAX_REVIEW_TAG_CHARS} chars), sin HTML ni emojis.`
+          tf("review.validation.tagInvalid", { tag: invalidTag, maxTagChars: MAX_REVIEW_TAG_CHARS })
         )
         return
       }
@@ -1586,14 +1613,14 @@ function App() {
     if (currentStep === 6) {
       const numericPrice = Number(reviewForm.price)
       if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-        setReviewWizardStatus("Debes ingresar un precio mayor a 0 antes de continuar.")
+        setReviewWizardStatus(t("review.validation.pricePositive"))
         return
       }
     }
 
     if (currentStep === 7) {
       if (!isValidReviewPurchaseUrl(reviewForm.purchase_url)) {
-        setReviewWizardStatus("El link de compra debe ser una URL válida (http/https).")
+        setReviewWizardStatus(t("review.validation.purchaseUrl"))
         return
       }
     }
@@ -1925,12 +1952,12 @@ function App() {
 
   const uploadReviewEvidenceImage = async (file) => {
     if (!token) {
-      setAuthStatus("Inicia sesión con tu wallet antes de subir evidencias.")
+      setAuthStatus(t("review.evidence.loginRequired"))
       return
     }
 
     if (reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES) {
-      setAuthStatus(`You can upload up to ${MAX_REVIEW_EVIDENCE_IMAGES} evidence images.`)
+      setAuthStatus(tf("review.evidence.maxImages", { maxImages: MAX_REVIEW_EVIDENCE_IMAGES }))
       return
     }
 
@@ -1948,7 +1975,7 @@ function App() {
       })
 
       if (!uploaded?.image_url) {
-        throw new Error("Invalid evidence upload response.")
+        throw new Error(t("review.evidence.invalidUploadResponse"))
       }
 
       setReviewForm((prev) => ({
@@ -1956,7 +1983,7 @@ function App() {
         evidence_images: [...prev.evidence_images, uploaded.image_url].slice(0, MAX_REVIEW_EVIDENCE_IMAGES),
       }))
     } catch (error) {
-      setAuthStatus(error?.message || "No se pudo subir la evidencia.")
+      setAuthStatus(error?.message || t("review.evidence.uploadFailed"))
     } finally {
       setUploadingReviewEvidence(false)
     }
@@ -2194,6 +2221,7 @@ function App() {
           search_saved_establishments_enabled: Boolean(config.search_saved_establishments_enabled ?? true),
           allow_global_category_search: Boolean(config.allow_global_category_search ?? true),
           require_profile_completion: Boolean(config.require_profile_completion ?? false),
+          i18n_translations_json: config.i18n_translations_json || "",
         })
       }
     } catch (error) {
@@ -2218,6 +2246,7 @@ function App() {
         search_saved_establishments_enabled: Boolean(config.search_saved_establishments_enabled ?? prev.search_saved_establishments_enabled ?? true),
         allow_global_category_search: Boolean(config.allow_global_category_search ?? prev.allow_global_category_search ?? true),
         require_profile_completion: Boolean(config.require_profile_completion ?? prev.require_profile_completion ?? false),
+        i18n_translations_json: config.i18n_translations_json || prev.i18n_translations_json || "",
       }))
     } catch {
       // Keep defaults if public config endpoint is unavailable.
@@ -2357,6 +2386,7 @@ function App() {
         search_saved_establishments_enabled: Boolean(pointsConfig.search_saved_establishments_enabled),
         allow_global_category_search: Boolean(pointsConfig.allow_global_category_search),
         require_profile_completion: Boolean(pointsConfig.require_profile_completion),
+        i18n_translations_json: pointsConfig.i18n_translations_json || null,
       }
 
       const updated = await apiFetch("/admin/config", {
@@ -2381,6 +2411,7 @@ function App() {
         search_saved_establishments_enabled: Boolean(updated.search_saved_establishments_enabled ?? true),
         allow_global_category_search: Boolean(updated.allow_global_category_search ?? true),
         require_profile_completion: Boolean(updated.require_profile_completion ?? false),
+        i18n_translations_json: updated.i18n_translations_json || "",
       })
       setAdminStatus("Configuración actualizada.")
     } catch (error) {
@@ -2443,6 +2474,25 @@ function App() {
       setAdminStatus(error?.message || "No se pudo subir el logo de wallet.")
     } finally {
       setUploadingWalletLogoKey("")
+    }
+  }
+
+  const uploadI18nTranslationsFile = async (file) => {
+    if (!isAdmin || !file) return
+    setUploadingI18nFile(true)
+    setAdminStatus("")
+    try {
+      const text = await file.text()
+      JSON.parse(text)
+      setPointsConfig((prev) => ({
+        ...prev,
+        i18n_translations_json: text,
+      }))
+      setAdminStatus("Archivo de traducciones cargado. Guarda la configuracion para publicarlo.")
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo leer el archivo de traducciones.")
+    } finally {
+      setUploadingI18nFile(false)
     }
   }
 
@@ -2798,7 +2848,7 @@ function App() {
         token: "",
         expiresAt: "",
         answer: "",
-        error: error?.message || "No se pudo cargar el captcha.",
+        error: error?.message || t("review.captcha.loadFailed"),
       })
     }
   }
@@ -2834,7 +2884,7 @@ function App() {
         maxPerDay: Number(pointsConfig.max_reviews_per_establishment_per_day || 1),
         reviewsToday: 0,
         message: "",
-        error: error?.message || "No se pudo validar el límite diario.",
+        error: error?.message || t("review.dailyLimit.validateFailed"),
       })
     }
   }
@@ -2844,7 +2894,7 @@ function App() {
     if (!query) {
       setLocationSearch((prev) => ({
         ...prev,
-        error: "Ingresa una dirección para buscar.",
+        error: t("review.location.enterAddress"),
         results: [],
       }))
       return
@@ -2874,7 +2924,7 @@ function App() {
                 : []
               return {
                 id: String(item?.id || `${lat}-${lon}`),
-                name: String(item?.name || "Establishment").trim(),
+                name: String(item?.name || t("review.location.defaultName")).trim(),
                 address: String(item?.address || "").trim(),
                 country: String(item?.country || "").trim(),
                 state_region: String(item?.state_region || "").trim(),
@@ -2897,13 +2947,13 @@ function App() {
         mapCenter: normalized[0]
           ? { latitude: normalized[0].latitude, longitude: normalized[0].longitude }
           : prev.mapCenter,
-        error: normalized.length ? "" : "No encontramos resultados para esa dirección.",
+        error: normalized.length ? "" : t("review.location.noResultsForAddress"),
       }))
     } catch (error) {
       setLocationSearch((prev) => ({
         ...prev,
         loading: false,
-        error: error?.message || "No se pudo consultar el mapa.",
+        error: error?.message || t("review.location.mapQueryFailed"),
       }))
     }
   }
@@ -2940,7 +2990,7 @@ function App() {
     const filteredItems = [...new Set([...existingDbImages, localPlaceholder].filter(Boolean))]
     setImageSuggestions({
       loading: false,
-      error: filteredItems.length ? "" : "No se encontraron imágenes para este rubro.",
+      error: filteredItems.length ? "" : t("review.location.noImagesForCategory"),
       items: filteredItems,
       selected: filteredItems[0] || "",
     })
@@ -2950,7 +3000,7 @@ function App() {
     if (!candidate) return
     const normalizedCandidate = {
       ...candidate,
-      category: candidate.category || establishmentCategory || "Map Place",
+      category: candidate.category || establishmentCategory || t("review.location.mapPlaceCategory"),
       source: candidate.source || "search",
     }
     setReviewForm((prev) => ({ ...prev, establishment_id: "" }))
@@ -2966,7 +3016,7 @@ function App() {
 
   const locateCurrentPosition = async () => {
     if (!navigator?.geolocation) {
-      setLocationSearch((prev) => ({ ...prev, error: "Tu navegador no soporta geolocalización." }))
+      setLocationSearch((prev) => ({ ...prev, error: t("review.location.noGeolocationSupport") }))
       return
     }
 
@@ -2983,7 +3033,7 @@ function App() {
       const latitude = toNumberOrNull(position?.coords?.latitude)
       const longitude = toNumberOrNull(position?.coords?.longitude)
       if (latitude == null || longitude == null) {
-        throw new Error("No se pudo leer tu ubicación actual.")
+        throw new Error(t("review.location.readCurrentFailed"))
       }
 
       const params = new URLSearchParams({
@@ -2996,7 +3046,7 @@ function App() {
         headers: { "Accept-Language": "es,en" },
       })
       if (!response.ok) {
-        throw new Error("No se pudo resolver la dirección desde OSM.")
+        throw new Error(t("review.location.resolveAddressFailed"))
       }
       const data = await response.json()
       const addr = data?.address || {}
@@ -3008,7 +3058,7 @@ function App() {
             addr?.shop ||
             addr?.building ||
             data?.display_name?.split(",")?.[0] ||
-            "Establishment"
+            t("review.location.defaultName")
         ).trim(),
         address: String(data?.display_name || "").trim() || `Lat ${latitude}, Lng ${longitude}`,
         country: String(addr?.country || "").trim(),
@@ -3031,7 +3081,7 @@ function App() {
         mapCenter: normalized[0]
           ? { latitude: normalized[0].latitude, longitude: normalized[0].longitude }
           : prev.mapCenter,
-        error: normalized.length ? "" : "No encontramos resultados cercanos.",
+        error: normalized.length ? "" : t("review.location.noNearbyResults"),
       }))
 
       if (normalized[0]) {
@@ -3041,7 +3091,7 @@ function App() {
       setLocationSearch((prev) => ({
         ...prev,
         geolocating: false,
-        error: error?.message || "No se pudo ubicar tu posición actual.",
+        error: error?.message || t("review.location.locateCurrentFailed"),
       }))
     }
   }
@@ -3078,7 +3128,7 @@ function App() {
           district: candidate.district || null,
           latitude: candidate.latitude,
           longitude: candidate.longitude,
-          category: candidate.category || establishmentCategory || "Map Place",
+          category: candidate.category || establishmentCategory || t("review.location.mapPlaceCategory"),
           image_url: imageSuggestions.selected || candidate.image_url || null,
         }),
       })
@@ -3119,7 +3169,7 @@ function App() {
       setLocationSearch((prev) => ({
         ...prev,
         resolving: false,
-        error: error?.message || "No se pudo seleccionar este establecimiento.",
+        error: error?.message || t("review.location.selectEstablishmentFailed"),
       }))
     }
   }
@@ -3292,7 +3342,7 @@ function App() {
     activeReviewSubmissionIdRef.current = submissionId
     cancelledReviewSubmissionIdsRef.current.delete(submissionId)
     if (!token) {
-      setAuthStatus("Sign in with your wallet before posting a review.")
+      setAuthStatus(t("review.submit.signInRequired"))
       activeReviewSubmissionIdRef.current = null
       setSubmittingReview(false)
       return
@@ -3302,7 +3352,7 @@ function App() {
     try {
       openReviewTxModal({
         step: "preparing",
-        message: "Preparing review payload...",
+        message: t("review.submit.preparingPayload"),
         points: 0,
         txHash: "",
         explorerUrl: "",
@@ -3310,21 +3360,21 @@ function App() {
 
       await ensureNetwork()
       if (!userId) {
-        setAuthStatus("Missing user id in token. Sign in again.")
+        setAuthStatus(t("review.submit.missingUserId"))
         setReviewTx((prev) => ({
           ...prev,
           step: "error",
-          message: "Missing user id in token. Sign in again.",
+          message: t("review.submit.missingUserId"),
         }))
         return
       }
 
       if (!reviewForm.establishment_id) {
-        setAuthStatus("Select an establishment before submitting your review.")
+        setAuthStatus(t("review.submit.selectEstablishment"))
         setReviewTx((prev) => ({
           ...prev,
           step: "error",
-          message: "Select an establishment before submitting your review.",
+          message: t("review.submit.selectEstablishment"),
         }))
         return
       }
@@ -3340,7 +3390,7 @@ function App() {
         error: "",
       })
       if (!latestDailyLimit?.can_review_today) {
-        const message = String(latestDailyLimit?.message || "Ya alcanzaste el límite diario para este establecimiento.")
+        const message = String(latestDailyLimit?.message || t("review.submit.dailyLimitReached"))
         setAuthStatus(message)
         setReviewTx((prev) => ({
           ...prev,
@@ -3352,24 +3402,24 @@ function App() {
 
       const normalizedTitle = normalizeReviewText(reviewForm.title)
       if (!normalizedTitle) {
-        setAuthStatus("Title is required.")
-        setReviewTx((prev) => ({ ...prev, step: "error", message: "Title is required." }))
+        setAuthStatus(t("review.submit.titleRequired"))
+        setReviewTx((prev) => ({ ...prev, step: "error", message: t("review.submit.titleRequired") }))
         return
       }
       if (normalizedTitle.length > MAX_REVIEW_TITLE_CHARS) {
-        const message = `Title must have at most ${MAX_REVIEW_TITLE_CHARS} characters.`
+        const message = tf("review.submit.titleMaxChars", { max: MAX_REVIEW_TITLE_CHARS })
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       if (containsUnsafeHtmlLikeContent(normalizedTitle)) {
-        const message = "Title must not contain HTML or script-like content."
+        const message = t("review.submit.titleNoHtml")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       if (containsReviewEmoji(normalizedTitle)) {
-        const message = "Title must not contain emojis."
+        const message = t("review.submit.titleNoEmoji")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
@@ -3377,38 +3427,38 @@ function App() {
 
       const normalizedDescription = normalizeReviewText(reviewForm.description)
       if (!normalizedDescription) {
-        const message = "Description is required."
+        const message = t("review.submit.descriptionRequired")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       if (normalizedDescription.length > MAX_REVIEW_DESCRIPTION_CHARS) {
-        const message = `Description must have at most ${MAX_REVIEW_DESCRIPTION_CHARS} characters.`
+        const message = tf("review.submit.descriptionMaxChars", { max: MAX_REVIEW_DESCRIPTION_CHARS })
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       if (containsUnsafeHtmlLikeContent(normalizedDescription)) {
-        const message = "Description must not contain HTML or script-like content."
+        const message = t("review.submit.descriptionNoHtml")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       if (containsReviewEmoji(normalizedDescription)) {
-        const message = "Description must not contain emojis."
+        const message = t("review.submit.descriptionNoEmoji")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       const numericPrice = Number(reviewForm.price)
       if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-        const message = "Price must be greater than 0."
+        const message = t("review.submit.pricePositive")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       if (!isValidReviewPurchaseUrl(reviewForm.purchase_url)) {
-        const message = "Purchase URL must be a valid URL (http/https)."
+        const message = t("review.submit.purchaseUrl")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
@@ -3419,31 +3469,37 @@ function App() {
         reviewForm.evidence_images.length < MIN_REVIEW_EVIDENCE_IMAGES ||
         reviewForm.evidence_images.length > MAX_REVIEW_EVIDENCE_IMAGES
       ) {
-        setAuthStatus(`Evidence images must be between ${MIN_REVIEW_EVIDENCE_IMAGES} and ${MAX_REVIEW_EVIDENCE_IMAGES}.`)
+        setAuthStatus(tf("review.submit.evidenceRange", {
+          minEvidence: MIN_REVIEW_EVIDENCE_IMAGES,
+          maxEvidence: MAX_REVIEW_EVIDENCE_IMAGES,
+        }))
         setReviewTx((prev) => ({
           ...prev,
           step: "error",
-          message: `Evidence images must be between ${MIN_REVIEW_EVIDENCE_IMAGES} and ${MAX_REVIEW_EVIDENCE_IMAGES}.`,
+          message: tf("review.submit.evidenceRange", {
+            minEvidence: MIN_REVIEW_EVIDENCE_IMAGES,
+            maxEvidence: MAX_REVIEW_EVIDENCE_IMAGES,
+          }),
         }))
         return
       }
 
       if (reviewCaptcha.requiresCaptcha) {
         if (!reviewCaptcha.token) {
-          setAuthStatus("Captcha no disponible. Recarga el captcha e inténtalo de nuevo.")
+          setAuthStatus(t("review.submit.captchaUnavailable"))
           setReviewTx((prev) => ({
             ...prev,
             step: "error",
-            message: "Captcha no disponible. Recarga el captcha e inténtalo de nuevo.",
+            message: t("review.submit.captchaUnavailable"),
           }))
           return
         }
         if (!String(reviewCaptcha.answer || "").trim()) {
-          setAuthStatus("Debes resolver el captcha antes de enviar la reseña.")
+          setAuthStatus(t("review.submit.captchaRequired"))
           setReviewTx((prev) => ({
             ...prev,
             step: "error",
-            message: "Debes resolver el captcha antes de enviar la reseña.",
+            message: t("review.submit.captchaRequired"),
           }))
           return
         }
@@ -3462,14 +3518,14 @@ function App() {
       }
       const tags = Array.from(tagsDedup.values())
       if (!tags.length) {
-        const message = "At least one tag is required."
+        const message = t("review.submit.tagsRequired")
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
       }
       const maxReviewTags = Number(pointsConfig.max_review_tags || DEFAULT_MAX_REVIEW_TAGS)
       if (maxReviewTags > 0 && tags.length > maxReviewTags) {
-        const message = `Puedes agregar máximo ${maxReviewTags} tags por review.`
+        const message = tf("review.submit.maxTags", { maxTags: maxReviewTags })
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
@@ -3480,7 +3536,7 @@ function App() {
         return !REVIEW_TAG_ALLOWED_REGEX.test(tag)
       })
       if (invalidTag) {
-        const message = `Tag invalid: "${invalidTag}". Use 2-${MAX_REVIEW_TAG_CHARS} chars, no HTML, no emojis.`
+        const message = tf("review.submit.invalidTag", { tag: invalidTag, maxTagChars: MAX_REVIEW_TAG_CHARS })
         setAuthStatus(message)
         setReviewTx((prev) => ({ ...prev, step: "error", message }))
         return
@@ -3502,7 +3558,7 @@ function App() {
 
       const provider = getWalletProvider()
       if (!provider) {
-        throw new Error("Wallet provider not found.")
+        throw new Error(t("review.submit.walletProviderNotFound"))
       }
 
       const signer = await provider.getSigner()
@@ -3552,7 +3608,7 @@ function App() {
       setReviewTx((prev) => ({
         ...prev,
         step: "signing",
-        message: "Sign the review message in your wallet (no gas required).",
+        message: t("review.submit.signWalletMessage"),
       }))
 
       const signature = await signer.signTypedData(typedDataDomain, typedDataTypes, typedDataMessage)
@@ -3565,7 +3621,7 @@ function App() {
         txHash: "",
         explorerUrl: "",
         points: 0,
-        message: "Review submitted. Waiting moderation approval...",
+        message: t("review.submit.pendingModeration"),
       }))
 
       const payloadToPersist = {
@@ -3601,18 +3657,18 @@ function App() {
         txHash: "",
         explorerUrl: "",
         points: 0,
-        message: "Review submitted successfully. Status: Pending moderation.",
+        message: t("review.submit.successPendingModeration"),
       }))
 
       resetReviewDraft({ resetCategory: true })
-      setAuthStatus("Review submitted and queued for moderation.")
+      setAuthStatus(t("review.submit.queuedForModeration"))
       setActivePage("reviews")
     } catch (error) {
       if (isReviewSubmissionCancelled(submissionId)) {
         return
       }
       const userCancelled = isUserCancelledPayment(error)
-      const message = getWalletErrorMessage(error, "Failed to submit review.")
+      const message = getWalletErrorMessage(error, t("review.submit.failedDefault"))
       if (/invalid captcha|captcha_token and captcha_answer are required/i.test(message)) {
         await fetchReviewCaptchaChallenge()
         setReviewWizardStep(9)
@@ -3788,15 +3844,18 @@ function App() {
     <div className="app-shell">
       <Header
         walletAddress={walletAddress}
-        walletProviderLabel={connectedWalletLabel || "Wallet"}
+        walletProviderLabel={connectedWalletLabel || t("wallet.providerFallback")}
         walletNetworkLabel={walletNetworkLabel}
         walletUserName={walletUserName}
+        locale={locale}
+        t={t}
         isConnected={Boolean(walletAddress && token)}
         isAdmin={Boolean(walletAddress && token && isAdmin)}
         hasWalletProvider={hasWalletProvider}
         activePage={activePage === "leaderboard-user" ? "leaderboard" : activePage}
         onWalletAction={handleWalletAction}
         onNavigate={setActivePage}
+        onToggleLocale={toggleLocale}
       />
       {authStatus && (
         <div className="status-banner-wrap">
@@ -3880,9 +3939,9 @@ function App() {
             <section className="hero">
               <div className="hero-row">
                 <div>
-                  <h1>Las mejores reseñas del año</h1>
+                  <h1>{t("hero.title")}</h1>
                   <p>
-                    Reseñas verificadas y valoraciones de la comunidad Syspoints.
+                    {t("hero.subtitle")}
                   </p>
                 </div>
               </div>
@@ -3905,7 +3964,7 @@ function App() {
                   type="search"
                   value={reviewSearchDraft}
                   onChange={(event) => setReviewSearchDraft(event.target.value)}
-                  placeholder="Buscar por establishment, descripción, título, ciudad o dirección..."
+                  placeholder={t("reviews.search.placeholder")}
                   aria-label="Buscar reviews"
                 />
                 <div className="reviews-search-location" ref={reviewLocationMenuRef}>
@@ -3942,7 +4001,7 @@ function App() {
             <div className="grid">
               <section className="panel" style={{ gridColumn: "1 / 2" }}>
                 <div className="panel-header">
-                  <h3 className="panel-title">Recent reviews</h3>
+                  <h3 className="panel-title">{t("home.recentReviews")}</h3>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <div style={{ display: "flex", gap: "4px" }}>
                       <button
@@ -4061,7 +4120,7 @@ function App() {
                                 {"☆".repeat(5 - (Number(review.stars) || 0))}
                               </div>
                               <button className="primary-button alt watch-button" onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
-                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "See more"}
+                                {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : t("common.seeMore")}
                               </button>
                             </div>
                           </div>
@@ -4191,7 +4250,7 @@ function App() {
                                 />
                                 
                                 <button className="primary-button alt watch-button" style={{ width: "100%", marginTop: "12px", padding: "8px" }} onClick={() => loadReviewDetail(review.id)} disabled={loadingSelectedReview}>
-                                  {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : "See more"}
+                                  {loadingSelectedReview && loadingReviewId === review.id ? "Loading..." : t("common.seeMore")}
                                 </button>
                               </div>
                             </div>
@@ -4204,6 +4263,7 @@ function App() {
               </section>
 
               <HomeSidebarPanels
+                t={t}
                 loadingLeaderboard={loadingLeaderboard}
                 leaderboard={leaderboard}
                 formatShortWalletAddress={formatShortWalletAddress}
@@ -4277,17 +4337,17 @@ function App() {
           <div className="grid">
             <section className="panel" style={{ gridColumn: "1 / 2" }}>
               <div className="panel-header">
-                <h3 className="panel-title">Write a review</h3>
-                <span className="pill">Review</span>
+                <h3 className="panel-title">{t("review.form.title")}</h3>
+                <span className="pill">{t("review.form.pill")}</span>
               </div>          
               <div className="input-group">
                 {reviewWizardStep === 1 && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 1: Rubro</strong>
+                      <strong>{t("review.step1.title")}</strong>
                     </div>
                     <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                      Elige el rubro del establecimiento.
+                      {t("review.step1.hint")}
                     </div>
                     <select
                       className="input"
@@ -4295,7 +4355,7 @@ function App() {
                       onChange={(event) => handleCategorySelection(event.target.value)}
                       disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
                     >
-                      <option value="">Selecciona un rubro</option>
+                      <option value="">{t("review.step1.selectCategory")}</option>
                       {categoryOptions.map((category) => (
                         <option key={category} value={category}>
                           {category}
@@ -4304,12 +4364,12 @@ function App() {
                     </select>
                     {establishmentCategory === "Others" && (
                       <div style={{ fontSize: "12px", color: "var(--muted)" }}>
-                        Modo global: se buscará cualquier tipo de establecimiento.
+                        {t("review.step1.globalMode")}
                       </div>
                     )}
                     <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
                       <button type="button" className="primary-button" onClick={() => goToNextWizardStep(1, 2)}>
-                        Siguiente
+                        {t("common.next")}
                       </button>
                     </div>
                   </div>
@@ -4318,17 +4378,17 @@ function App() {
                 {hasSelectedCategory && reviewWizardStep === 2 && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 2: Establecimiento</strong>
+                      <strong>{t("review.step2.title")}</strong>
                     </div>
                     <>
                         <div className="map-search-box">
                           <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                            Busca por dirección o nombre. Verás resultados del mapa y también establecimientos guardados en la base de datos.
+                            {t("review.step2.hint")}
                           </div>
                           <div className="map-search-row">
                             <input
                               className="input"
-                              placeholder="Ej: Saga Falabella Miraflores o Av. Larco 345, Miraflores"
+                              placeholder={t("review.step2.searchPlaceholder")}
                               value={locationSearch.query}
                               onChange={(event) =>
                                 setLocationSearch((prev) => ({ ...prev, query: event.target.value, error: "" }))
@@ -4340,7 +4400,7 @@ function App() {
                               onClick={searchLocationsByAddress}
                               disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
                             >
-                              {locationSearch.loading ? "Buscando..." : "Buscar en mapa"}
+                              {locationSearch.loading ? t("review.step2.searching") : t("review.step2.searchMap")}
                             </button>
                             <button
                               type="button"
@@ -4348,7 +4408,7 @@ function App() {
                               onClick={locateCurrentPosition}
                               disabled={locationSearch.loading || locationSearch.geolocating || locationSearch.resolving}
                             >
-                              {locationSearch.geolocating ? "Ubicando..." : "Usar mi ubicación"}
+                              {locationSearch.geolocating ? t("review.step2.locating") : t("review.step2.useMyLocation")}
                             </button>
                           </div>
                           {locationSearch.error && (
@@ -4378,12 +4438,14 @@ function App() {
                         {selectedEstablishment && (
                           <div style={{ display: "grid", gap: "10px" }}>
                             <div className="selected-establishment-status">
-                              Establecimiento seleccionado
+                              {t("review.step2.selected")}
                             </div>
                             <div style={{ fontSize: "12px", color: dailyLimitStatus.canReviewToday ? "#6b7280" : "#b91c1c" }}>
                               {dailyLimitStatus.loading
-                                ? "Validando límite diario..."
-                                : `Regla: máximo ${Number(dailyLimitStatus.maxPerDay || pointsConfig.max_reviews_per_establishment_per_day || 1)} review por día para este establecimiento.`}
+                                ? t("review.step2.dailyChecking")
+                                : tf("review.step2.dailyRule", {
+                                  maxPerDay: Number(dailyLimitStatus.maxPerDay || pointsConfig.max_reviews_per_establishment_per_day || 1),
+                                })}
                             </div>
                             {!dailyLimitStatus.loading && dailyLimitStatus.message && (
                               <div style={{ fontSize: "12px", color: dailyLimitStatus.canReviewToday ? "#166534" : "#b91c1c" }}>
@@ -4399,11 +4461,11 @@ function App() {
                               {locationSearch.selected?.source === "geolocation" ? (
                                 <div style={{ display: "grid", gap: "6px" }}>
                                   <label style={{ fontSize: "12px", color: "var(--muted)" }}>
-                                    Nombre del establecimiento (editable):
+                                    {t("review.step2.nameEditableLabel")}
                                   </label>
                                   <input
                                     className="input"
-                                    placeholder="Ingresa el nombre del establecimiento"
+                                    placeholder={t("review.step2.namePlaceholder")}
                                     value={locationSearch.selected?.name || ""}
                                     onChange={(event) => {
                                       const nextName = event.target.value
@@ -4416,37 +4478,37 @@ function App() {
                                     disabled={locationSearch.resolving}
                                   />
                                   <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                                    El nombre se guardará al confirmar el establecimiento.
+                                    {t("review.step2.nameHint")}
                                   </span>
                                 </div>
                               ) : (
                                 <strong>{selectedEstablishment.name}</strong>
                               )}
                               <span style={{ color: "var(--muted)", fontSize: "0.85rem" }}>
-                                {selectedEstablishment.address || "Dirección no disponible"}
+                                {selectedEstablishment.address || t("review.step2.addressUnavailable")}
                               </span>
                               <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
                                 {[
                                   selectedEstablishment.district,
                                   selectedEstablishment.state_region,
                                   selectedEstablishment.country,
-                                ].filter(Boolean).join(" · ") || "Ubicación administrativa no disponible"}
+                                ].filter(Boolean).join(" · ") || t("review.step2.adminLocationUnavailable")}
                               </span>
                               <span style={{ color: "var(--muted)", fontSize: "0.8rem" }}>
-                                Rubro: {selectedEstablishment.category || establishmentCategory}
+                                {t("review.step2.categoryLabel")}: {selectedEstablishment.category || establishmentCategory}
                               </span>
                             </div>
                             <div className="selected-establishment-media">
                               {selectedEstablishment.image_url && (
                                 <img
                                   src={selectedEstablishment.image_url}
-                                  alt={selectedEstablishment.name || "Establishment"}
+                                  alt={selectedEstablishment.name || t("review.location.defaultName")}
                                 />
                               )}
                               {toNumberOrNull(selectedEstablishment.latitude) != null &&
                                 toNumberOrNull(selectedEstablishment.longitude) != null && (
                                 <iframe
-                                  title="Selected establishment map"
+                                  title={t("review.step2.selectedMapTitle")}
                                   src={buildEmbeddedMapUrl({
                                     latitude: toNumberOrNull(selectedEstablishment.latitude),
                                     longitude: toNumberOrNull(selectedEstablishment.longitude),
@@ -4457,7 +4519,7 @@ function App() {
                               )}
                             </div>
                             <div style={{ fontSize: "12px", color: "var(--muted)" }}>
-                              Imagen del establecimiento: elige una existente o sube una.
+                              {t("review.step2.imageHint")}
                             </div>
                             <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
                               <label style={{ display: "inline-flex", gap: "6px", alignItems: "center", fontSize: "12px", color: "var(--muted)" }}>
@@ -4473,7 +4535,7 @@ function App() {
                                   }}
                                   disabled={locationSearch.resolving}
                                 />
-                                {establishmentCategory === "Others" ? "Usar imagen por defecto" : "Usar imagen existente (DB)"}
+                                {establishmentCategory === "Others" ? t("review.step2.useDefaultImage") : t("review.step2.useExistingImage")}
                               </label>
                               <label style={{ display: "inline-flex", gap: "6px", alignItems: "center", fontSize: "12px", color: "var(--muted)" }}>
                                 <input
@@ -4486,7 +4548,7 @@ function App() {
                                   }}
                                   disabled={locationSearch.resolving}
                                 />
-                                Subir imagen
+                                {t("review.step2.uploadImage")}
                               </label>
                             </div>
                             {imageSourceMode === "upload" && (
@@ -4495,13 +4557,15 @@ function App() {
                                   accept="image/jpeg,image/png,image/webp"
                                   onFile={(file) => uploadSelectedEstablishmentImage(file)}
                                   disabled={uploadingSelectedEstablishmentImage || locationSearch.resolving}
+                                  buttonText={t("review.fileUpload.selectImage")}
+                                  emptyText={t("review.fileUpload.empty")}
                                 />
                                 {uploadingSelectedEstablishmentImage && (
-                                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>Subiendo imagen...</div>
+                                  <div style={{ fontSize: "12px", color: "var(--muted)" }}>{t("review.step2.uploadingImage")}</div>
                                 )}
                               </div>
                             )}
-                            {imageSuggestions.loading && <div style={{ fontSize: "12px", color: "var(--muted)" }}>Buscando imágenes sugeridas...</div>}
+                            {imageSuggestions.loading && <div style={{ fontSize: "12px", color: "var(--muted)" }}>{t("review.step2.searchingSuggestedImages")}</div>}
                             {imageSuggestions.error && <div style={{ fontSize: "12px", color: "#b91c1c" }}>{imageSuggestions.error}</div>}
                             {imageSourceMode === "existing" && imageSuggestions.items.length > 0 && (
                               <div className="suggested-images-grid">
@@ -4513,7 +4577,7 @@ function App() {
                                     onClick={() => setImageSuggestions((prev) => ({ ...prev, selected: imageUrl }))}
                                     disabled={locationSearch.resolving}
                                   >
-                                    <img src={imageUrl} alt="Suggested establishment" />
+                                    <img src={imageUrl} alt={t("review.step2.suggestedImageAlt")} />
                                   </button>
                                 ))}
                               </div>
@@ -4538,7 +4602,7 @@ function App() {
                                 }}
                                 disabled={locationSearch.resolving}
                               >
-                                Cambiar establecimiento
+                                {t("review.step2.changeEstablishment")}
                               </button>
                               <button
                                 type="button"
@@ -4553,12 +4617,12 @@ function App() {
                                   (imageSourceMode === "upload" && !imageSuggestions.selected)
                                 }
                               >
-                                {locationSearch.resolving ? "Guardando establecimiento..." : "Confirmar establecimiento"}
+                                {locationSearch.resolving ? t("review.step2.savingEstablishment") : t("review.step2.confirmEstablishment")}
                               </button>
                             </div>
                             {reviewForm.establishment_id && (
                               <div style={{ fontSize: "12px", color: "#166534" }}>
-                                Establecimiento confirmado para esta reseña.
+                                {t("review.step2.confirmed")}
                               </div>
                             )}
                           </div>
@@ -4566,7 +4630,7 @@ function App() {
                         {!selectedEstablishment && (
                           <div className="selected-establishment-card">
                             <iframe
-                              title="Location map"
+                              title={t("review.step2.locationMapTitle")}
                               src={buildEmbeddedMapUrl({
                                 latitude: locationSearch.mapCenter.latitude,
                                 longitude: locationSearch.mapCenter.longitude,
@@ -4578,10 +4642,10 @@ function App() {
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(1)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(2, 3)}>
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4591,18 +4655,18 @@ function App() {
                 {hasConfirmedEstablishment && reviewWizardStep === 3 && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 3: Título</strong>
+                      <strong>{t("review.step3.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Título breve y claro (máx {MAX_REVIEW_TITLE_CHARS} caracteres, sin HTML ni emojis).
+                          {tf("review.step3.hint", { maxTitleChars: MAX_REVIEW_TITLE_CHARS })}
                         </div>
                         <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
-                          {normalizedReviewTitle.length}/{MAX_REVIEW_TITLE_CHARS} caracteres
+                          {tf("review.step3.counter", { count: normalizedReviewTitle.length, maxTitleChars: MAX_REVIEW_TITLE_CHARS })}
                         </div>
                         <input
                           className="input"
-                          placeholder="Review title"
+                          placeholder={t("review.step3.placeholder")}
                           value={reviewForm.title}
                           onChange={(event) =>
                             setReviewForm({ ...reviewForm, title: event.target.value })
@@ -4610,15 +4674,15 @@ function App() {
                         />
                         {!hasValidReviewTitle && String(reviewForm.title || "").trim() && (
                           <div style={{ fontSize: "12px", color: "#b91c1c" }}>
-                            Título inválido: respeta límites y evita HTML/emojis.
+                            {t("review.step3.invalid")}
                           </div>
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(2)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(3, 4)}>
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4628,19 +4692,19 @@ function App() {
                 {reviewWizardStep === 4 && hasValidReviewTitle && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 4: Descripción</strong>
+                      <strong>{t("review.step4.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Describe tu experiencia con detalles: qué compraste o lo que sucedió, cómo te atendieron y la fecha aproximada. Evita incluir datos personales, HTML y emojis.
+                          {t("review.step4.hint")}
                         </div>
                         <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
-                          {normalizeReviewText(reviewForm.description).length}/{MAX_REVIEW_DESCRIPTION_CHARS} caracteres
+                          {tf("review.step4.counter", { count: normalizeReviewText(reviewForm.description).length, maxDescriptionChars: MAX_REVIEW_DESCRIPTION_CHARS })}
                         </div>
                         <textarea
                           className="input"
                           rows={4}
-                          placeholder="Describe your experience"
+                          placeholder={t("review.step4.placeholder")}
                           value={reviewForm.description}
                           onChange={(event) =>
                             setReviewForm({ ...reviewForm, description: event.target.value })
@@ -4648,10 +4712,10 @@ function App() {
                         />
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(3)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(4, 5)}>
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4661,20 +4725,20 @@ function App() {
                 {reviewWizardStep === 5 && hasValidReviewTitle && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 5: Valoración</strong>
+                      <strong>{t("review.step5.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Selecciona entre 1 (muy mala) y 5 (excelente).
+                          {t("review.step5.hint")}
                         </div>
-                        <div className="rating-picker" aria-label="Review stars">
+                        <div className="rating-picker" aria-label={t("review.step5.aria")}>
                           {[1, 2, 3, 4, 5].map((starValue) => (
                             <button
                               key={`review-star-${starValue}`}
                               type="button"
                               className={`rating-star ${Number(reviewForm.stars) >= starValue ? "active" : ""}`}
                               onClick={() => setReviewForm({ ...reviewForm, stars: starValue })}
-                              aria-label={`Set ${starValue} stars`}
+                              aria-label={tf("review.step5.setStarsAria", { stars: starValue })}
                             >
                               ★
                             </button>
@@ -4684,18 +4748,18 @@ function App() {
                             className="ghost-button rating-clear"
                             onClick={() => setReviewForm({ ...reviewForm, stars: 0 })}
                           >
-                            Clear
+                            {t("review.step5.clear")}
                           </button>
                         </div>
                         <div style={{ fontSize: "14px", color: "#374151", marginTop: "6px" }}>
-                          Stars: <strong>{reviewForm.stars}</strong>/5
+                          {tf("review.step5.starsValue", { stars: reviewForm.stars })}
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(4)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(5, 6)}>
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4705,16 +4769,16 @@ function App() {
                 {reviewWizardStep === 6 && hasValidReviewTitle && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 6: Precio</strong>
+                      <strong>{t("review.step6.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Ingresa el precio en soles (ej. 39.90). Debe ser mayor a 0.
+                          {t("review.step6.hint")}
                         </div>
                         <input
                           className="input"
                           type="number"
-                          placeholder="Price (PEN)"
+                          placeholder={t("review.step6.placeholder")}
                           value={reviewForm.price}
                           onChange={(event) =>
                             setReviewForm({ ...reviewForm, price: event.target.value })
@@ -4722,10 +4786,10 @@ function App() {
                         />
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(5)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(6, 7)}>
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4735,15 +4799,15 @@ function App() {
                 {reviewWizardStep === 7 && hasValidReviewTitle && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 7: Purchase URL</strong>
+                      <strong>{t("review.step7.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Opcional: pega un enlace de compra, ticket o producto.
+                          {t("review.step7.hint")}
                         </div>
                         <input
                           className="input"
-                          placeholder="Purchase URL"
+                          placeholder={t("review.step7.placeholder")}
                           value={reviewForm.purchase_url}
                           onChange={(event) =>
                             setReviewForm({ ...reviewForm, purchase_url: event.target.value })
@@ -4751,10 +4815,10 @@ function App() {
                         />
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(6)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(7, 8)}>
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4764,18 +4828,18 @@ function App() {
                 {reviewWizardStep === 8 && hasValidReviewTitle && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 8: Tags</strong>
+                      <strong>{t("review.step8.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Usa tags separadas por comas (ej.: delivery, atención, calidad). Máximo {maxReviewTags}. Cada tag 2-{MAX_REVIEW_TAG_CHARS} chars, sin HTML ni emojis.
+                          {tf("review.step8.hint", { maxTags: maxReviewTags, maxTagChars: MAX_REVIEW_TAG_CHARS })}
                         </div>
                         <div style={{ marginBottom: "6px", fontSize: "12px", color: parsedReviewTags.length > maxReviewTags ? "#b91c1c" : "#6b7280" }}>
-                          {parsedReviewTags.length}/{maxReviewTags} tags
+                          {tf("review.step8.counter", { count: parsedReviewTags.length, maxTags: maxReviewTags })}
                         </div>
                         <input
                           className="input"
-                          placeholder="Tags (comma separated)"
+                          placeholder={t("review.step8.placeholder")}
                           value={reviewForm.tags}
                           onChange={(event) =>
                             setReviewForm({ ...reviewForm, tags: event.target.value })
@@ -4783,12 +4847,12 @@ function App() {
                         />
                         {parsedReviewTags.length > maxReviewTags && (
                           <div style={{ fontSize: "12px", color: "#b91c1c" }}>
-                            Excediste el máximo de {maxReviewTags} tags.
+                            {tf("review.step8.overLimit", { maxTags: maxReviewTags })}
                           </div>
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(7)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                           <button
                             type="button"
@@ -4796,7 +4860,7 @@ function App() {
                             onClick={() => goToNextWizardStep(8, 9)}
                             disabled={parsedReviewTags.length > maxReviewTags}
                           >
-                            Siguiente
+                            {t("common.next")}
                           </button>
                         </div>
                     </>
@@ -4806,37 +4870,43 @@ function App() {
                 {reviewWizardStep === 9 && hasValidReviewTitle && (
                   <div className="selected-establishment-card">
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>Paso 9: Subir validación</strong>
+                      <strong>{t("review.step9.title")}</strong>
                     </div>
                     <>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          Formato permitido: JPG, PNG, WEBP. Mínimo {MIN_REVIEW_EVIDENCE_IMAGES}, máximo {MAX_REVIEW_EVIDENCE_IMAGES} imágenes.
+                          {tf("review.step9.hint", { minEvidence: MIN_REVIEW_EVIDENCE_IMAGES, maxEvidence: MAX_REVIEW_EVIDENCE_IMAGES })}
                         </div>
                         <FileUpload
                           accept="image/jpeg,image/png,image/webp"
                           onFile={(file) => uploadReviewEvidenceImage(file)}
                           disabled={!token || uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
+                          buttonText={t("review.fileUpload.uploadEvidence")}
+                          emptyText={t("review.fileUpload.empty")}
                         />
                         {!token && (
                           <div style={{ fontSize: "12px", color: "#b91c1c" }}>
-                            Debes iniciar sesión con tu wallet para subir evidencias.
+                            {t("review.step9.loginRequired")}
                           </div>
                         )}
-                        {uploadingReviewEvidence && <p>Subiendo evidencia...</p>}
+                        {uploadingReviewEvidence && <p>{t("review.step9.uploadingEvidence")}</p>}
                         <div style={{ display: "grid", gap: "8px" }}>
                           <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                            Evidencias: {reviewForm.evidence_images.length}/{MAX_REVIEW_EVIDENCE_IMAGES} (mínimo {MIN_REVIEW_EVIDENCE_IMAGES})
+                            {tf("review.step9.evidenceCounter", {
+                              count: reviewForm.evidence_images.length,
+                              maxEvidence: MAX_REVIEW_EVIDENCE_IMAGES,
+                              minEvidence: MIN_REVIEW_EVIDENCE_IMAGES,
+                            })}
                           </div>
                           <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                             {reviewForm.evidence_images.map((imageUrl, index) => (
                               <div key={`${imageUrl}-${index}`} style={{ display: "grid", gap: "6px" }}>
                                 <img
                                   src={imageUrl}
-                                  alt={`Evidence ${index + 1}`}
+                                  alt={tf("review.step9.evidenceAlt", { index: index + 1 })}
                                   style={{ width: "120px", height: "84px", objectFit: "cover", borderRadius: "8px", border: "1px solid #e5e7eb" }}
                                 />
                                 <button className="ghost-button" onClick={() => removeReviewEvidenceImage(index)}>
-                                  Quitar
+                                  {t("review.step9.remove")}
                                 </button>
                               </div>
                             ))}
@@ -4844,20 +4914,20 @@ function App() {
                         </div>
                         {reviewCaptcha.loading && (
                           <div style={{ fontSize: "12px", color: "var(--muted)" }}>
-                            Cargando captcha...
+                            {t("review.step9.loadingCaptcha")}
                           </div>
                         )}
                         {reviewCaptcha.requiresCaptcha && (
                           <div style={{ display: "grid", gap: "8px" }}>
                             <div style={{ fontSize: "12px", color: "#6b7280" }}>
-                              Verificación adicional: ya tienes reseñas previas. Resuelve el captcha para enviar una nueva.
+                              {t("review.step9.captchaHint")}
                             </div>
                             <div style={{ fontSize: "14px", fontWeight: 600 }}>
-                              {reviewCaptcha.challenge || "Captcha no disponible"}
+                              {reviewCaptcha.challenge || t("review.step9.captchaUnavailable")}
                             </div>
                             <input
                               className="input"
-                              placeholder="Respuesta del captcha"
+                              placeholder={t("review.step9.captchaAnswerPlaceholder")}
                               value={reviewCaptcha.answer}
                               onChange={(event) =>
                                 setReviewCaptcha((prev) => ({ ...prev, answer: event.target.value, error: "" }))
@@ -4870,11 +4940,11 @@ function App() {
                                 onClick={fetchReviewCaptchaChallenge}
                                 disabled={reviewCaptcha.loading}
                               >
-                                {reviewCaptcha.loading ? "Recargando..." : "Recargar captcha"}
+                                {reviewCaptcha.loading ? t("review.step9.reloadingCaptcha") : t("review.step9.reloadCaptcha")}
                               </button>
                               {reviewCaptcha.expiresAt && (
                                 <span style={{ fontSize: "12px", color: "var(--muted)" }}>
-                                  Expira: {new Date(reviewCaptcha.expiresAt).toLocaleTimeString()}
+                                  {t("review.step9.captchaExpires")}: {new Date(reviewCaptcha.expiresAt).toLocaleTimeString()}
                                 </span>
                               )}
                             </div>
@@ -4887,7 +4957,7 @@ function App() {
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(8)}>
-                            Atrás
+                            {t("common.back")}
                           </button>
                         </div>
                     </>
@@ -4912,8 +4982,8 @@ function App() {
                   }
                 >
                   {submittingReview || reviewTx.step === "preparing" || reviewTx.step === "signing" || reviewTx.step === "pending"
-                    ? "Submitting..."
-                    : "Submit review"}
+                    ? t("review.submitting")
+                    : t("review.submit")}
                 </button>
               )}
             </section>
@@ -5727,6 +5797,31 @@ function App() {
                   <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>
                     Estándar recomendado: logo cuadrado {WALLET_LOGO_STANDARD_SIZE}x{WALLET_LOGO_STANDARD_SIZE}px, entrada máxima 1MB.
                   </p>
+                  <label style={{ fontWeight: 600, marginTop: "10px" }}>{t("admin.i18n.label")}</label>
+                  <FileUpload
+                    accept="application/json,.json"
+                    onFile={(file) => uploadI18nTranslationsFile(file)}
+                    disabled={uploadingI18nFile}
+                    buttonText={t("admin.i18n.upload")}
+                  />
+                  {uploadingI18nFile && <p>{t("admin.i18n.uploading")}</p>}
+                  <textarea
+                    className="input"
+                    rows={9}
+                    placeholder={t("admin.i18n.placeholder")}
+                    value={pointsConfig.i18n_translations_json}
+                    onChange={(event) =>
+                      setPointsConfig({ ...pointsConfig, i18n_translations_json: event.target.value })
+                    }
+                  />
+                  <p style={{ margin: 0, color: "#6b7280", fontSize: "0.85rem" }}>
+                    {t("admin.i18n.help")}
+                  </p>
+                  {translationsError && (
+                    <p style={{ margin: 0, color: "#b91c1c", fontSize: "0.85rem" }}>
+                      {translationsError}
+                    </p>
+                  )}
                   <label style={{ fontWeight: 600, marginTop: "10px" }}>Reglas de negocio</label>
                   <input
                     className="input"
