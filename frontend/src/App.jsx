@@ -39,12 +39,6 @@ const DEFAULT_MAP_VIEW = {
   latitude: -12.0464,
   longitude: -77.0428,
 }
-const DEFAULT_REVIEW_FEED_LOCATION = {
-  mode: "default",
-  location: "Lima",
-  country: "PE",
-  label: "Lima, PE",
-}
 const ESTABLISHMENT_CATEGORIES = [
   "Restaurant",
   "Cafe",
@@ -410,14 +404,6 @@ const toNumberOrNull = (value) => {
   return Number.isFinite(numeric) ? numeric : null
 }
 
-const normalizeCountryCode = (value) => {
-  const normalized = String(value || "").trim().toLowerCase()
-  if (!normalized) return ""
-  if (["pe", "peru", "perú", "republic of peru"].includes(normalized)) return "PE"
-  if (normalized.length === 2) return normalized.toUpperCase()
-  return normalized.toUpperCase()
-}
-
 const isUuid = (value) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(value || "").trim())
 
 const buildEmbeddedMapUrl = ({ latitude, longitude }) => {
@@ -722,7 +708,6 @@ function App() {
   const activeWalletProviderRef = useRef(null)
   const activeReviewSubmissionIdRef = useRef(null)
   const cancelledReviewSubmissionIdsRef = useRef(new Set())
-  const reviewLocationMenuRef = useRef(null)
 
   const [profile, setProfile] = useState({
     name: "",
@@ -785,14 +770,6 @@ function App() {
   const [reviews, setReviews] = useState([])
   const [reviewsMeta, setReviewsMeta] = useState({ page: 1, page_size: DEFAULT_PAGE_SIZE, total: 0 })
   const [selectedReviewTag, setSelectedReviewTag] = useState("")
-  const [reviewSearchDraft, setReviewSearchDraft] = useState("")
-  const [reviewSearchApplied, setReviewSearchApplied] = useState("")
-  const [reviewFeedLocation, setReviewFeedLocation] = useState({
-    ...DEFAULT_REVIEW_FEED_LOCATION,
-    loading: false,
-    error: "",
-  })
-  const [reviewLocationMenuOpen, setReviewLocationMenuOpen] = useState(false)
   const [leaderboard, setLeaderboard] = useState([])
   const [leaderMeta, setLeaderMeta] = useState({ page: 1, page_size: 5, total: 0 })
   const [fullLeaderboard, setFullLeaderboard] = useState([])
@@ -2446,29 +2423,15 @@ function App() {
     }
   }
 
-  const fetchReviews = async (page = 1, { tag, search, location, country } = {}) => {
+  const fetchReviews = async (page = 1, { tag } = {}) => {
     setLoadingReviews(true)
     const normalizedTag = typeof tag === "string" ? tag.trim() : String(selectedReviewTag || "").trim()
-    const normalizedSearch = typeof search === "string" ? search.trim() : String(reviewSearchApplied || "").trim()
-    const normalizedLocation = typeof location === "string" ? location.trim() : String(reviewFeedLocation.location || "").trim()
-    const normalizedCountry = typeof country === "string"
-      ? normalizeCountryCode(country)
-      : normalizeCountryCode(reviewFeedLocation.country)
     const params = new URLSearchParams({
       page: String(page),
       page_size: String(DEFAULT_PAGE_SIZE),
     })
     if (normalizedTag) {
       params.set("tag", normalizedTag)
-    }
-    if (normalizedSearch) {
-      params.set("search", normalizedSearch)
-    }
-    if (normalizedLocation) {
-      params.set("location", normalizedLocation)
-    }
-    if (normalizedCountry) {
-      params.set("country", normalizedCountry)
     }
     try {
       const result = await apiFetch(`/reviews?${params.toString()}`)
@@ -2491,110 +2454,6 @@ function App() {
   const clearTagFilter = () => {
     setSelectedReviewTag("")
     fetchReviews(1, { tag: "" })
-  }
-
-  const applyReviewSearch = () => {
-    const normalized = String(reviewSearchDraft || "").trim()
-    setReviewSearchApplied(normalized)
-    fetchReviews(1, { search: normalized })
-  }
-
-  const useDefaultReviewLocation = () => {
-    setReviewFeedLocation((prev) => ({
-      ...prev,
-      ...DEFAULT_REVIEW_FEED_LOCATION,
-      loading: false,
-      error: "",
-    }))
-    setReviewLocationMenuOpen(false)
-    fetchReviews(1, {
-      location: DEFAULT_REVIEW_FEED_LOCATION.location,
-      country: DEFAULT_REVIEW_FEED_LOCATION.country,
-    })
-  }
-
-  const useCurrentReviewLocation = async () => {
-    if (!navigator?.geolocation) {
-      setReviewFeedLocation((prev) => ({
-        ...prev,
-        loading: false,
-        error: "Tu navegador no soporta geolocalización.",
-      }))
-      setReviewLocationMenuOpen(false)
-      return
-    }
-
-    setReviewFeedLocation((prev) => ({
-      ...prev,
-      loading: true,
-      error: "",
-    }))
-    setReviewLocationMenuOpen(false)
-    try {
-      const position = await new Promise((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject, {
-          enableHighAccuracy: true,
-          timeout: 12000,
-          maximumAge: 0,
-        })
-      })
-
-      const latitude = toNumberOrNull(position?.coords?.latitude)
-      const longitude = toNumberOrNull(position?.coords?.longitude)
-      if (latitude == null || longitude == null) {
-        throw new Error("No se pudo leer tu ubicación actual.")
-      }
-
-      const params = new URLSearchParams({
-        format: "jsonv2",
-        lat: String(latitude),
-        lon: String(longitude),
-        addressdetails: "1",
-      })
-      const response = await fetch(`${NOMINATIM_REVERSE_URL}?${params.toString()}`, {
-        headers: { "Accept-Language": "es,en" },
-      })
-      if (!response.ok) {
-        throw new Error("No se pudo resolver la ubicación actual.")
-      }
-
-      const data = await response.json()
-      const addr = data?.address || {}
-      const normalizedCountry = normalizeCountryCode(addr?.country_code || addr?.country || "")
-      const normalizedLocation = String(
-        addr?.city ||
-        addr?.town ||
-        addr?.village ||
-        addr?.city_district ||
-        addr?.suburb ||
-        addr?.state ||
-        ""
-      ).trim()
-      const resolvedLocation = normalizedLocation || "Current location"
-      const nextLabel = normalizedCountry
-        ? `${resolvedLocation}, ${normalizedCountry}`
-        : resolvedLocation
-
-      setReviewFeedLocation((prev) => ({
-        ...prev,
-        mode: "current",
-        location: resolvedLocation,
-        country: normalizedCountry,
-        label: nextLabel,
-        loading: false,
-        error: "",
-      }))
-      fetchReviews(1, {
-        location: resolvedLocation,
-        country: normalizedCountry,
-      })
-    } catch (error) {
-      setReviewFeedLocation((prev) => ({
-        ...prev,
-        loading: false,
-        error: error?.message || "No se pudo usar tu ubicación actual.",
-      }))
-    }
   }
 
   const fetchMyReviewStatuses = async () => {
@@ -3767,23 +3626,6 @@ function App() {
     fetchFullTopEstablishments(1)
   }, [activePage])
 
-  useEffect(() => {
-    if (!reviewLocationMenuOpen || typeof window === "undefined") return
-    const handleOutside = (event) => {
-      if (!reviewLocationMenuRef.current?.contains(event.target)) {
-        setReviewLocationMenuOpen(false)
-      }
-    }
-    document.addEventListener("mousedown", handleOutside)
-    return () => document.removeEventListener("mousedown", handleOutside)
-  }, [reviewLocationMenuOpen])
-
-  useEffect(() => {
-    if (activePage !== "reviews") {
-      setReviewLocationMenuOpen(false)
-    }
-  }, [activePage])
-
   return (
     <div className="app-shell">
       <Header
@@ -3879,6 +3721,7 @@ function App() {
           <>
             <section className="hero">
               <div className="hero-row">
+                <span className="hero-line" />
                 <div>
                   <h1>Las mejores reseñas del año</h1>
                   <p>
@@ -3892,52 +3735,6 @@ function App() {
                 </div>
               )}
             </section>
-            <div className="reviews-search-wrap">
-              <form
-                className="reviews-search-bar"
-                onSubmit={(event) => {
-                  event.preventDefault()
-                  applyReviewSearch()
-                }}
-              >
-                <input
-                  className="reviews-search-input"
-                  type="search"
-                  value={reviewSearchDraft}
-                  onChange={(event) => setReviewSearchDraft(event.target.value)}
-                  placeholder="Buscar por establishment, descripción, título, ciudad o dirección..."
-                  aria-label="Buscar reviews"
-                />
-                <div className="reviews-search-location" ref={reviewLocationMenuRef}>
-                  <button
-                    type="button"
-                    className="reviews-search-location-btn"
-                    onClick={() => setReviewLocationMenuOpen((prev) => !prev)}
-                    disabled={reviewFeedLocation.loading}
-                    aria-label="Opciones de ubicación"
-                  >
-                    {reviewFeedLocation.loading ? "Ubicando..." : (reviewFeedLocation.label || DEFAULT_REVIEW_FEED_LOCATION.label)}
-                    {" "}
-                    ▾
-                  </button>
-                  {reviewLocationMenuOpen && (
-                    <div className="reviews-search-location-menu">
-                      <button type="button" onClick={useCurrentReviewLocation}>Current location</button>
-                      <button type="button" onClick={useDefaultReviewLocation}>Lima, PE (default)</button>
-                    </div>
-                  )}
-                </div>
-                <button type="submit" className="reviews-search-submit" aria-label="Buscar">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="2.2" />
-                    <path d="M16 16L21 21" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-                  </svg>
-                </button>
-              </form>
-              {reviewFeedLocation.error && (
-                <div className="reviews-search-error">{reviewFeedLocation.error}</div>
-              )}
-            </div>
 
             <div className="grid">
               <section className="panel" style={{ gridColumn: "1 / 2" }}>

@@ -67,9 +67,7 @@
 .hero {
   display: grid;
   gap: 18px;
-  margin-bottom: 18px;
-  justify-items: center;
-  text-align: center;
+  margin-bottom: 30px;
 }
 
 .hero h1 {
@@ -85,13 +83,11 @@
   color: var(--muted);
   font-size: 1.05rem;
   max-width: 640px;
-  margin-inline: auto;
 }
 
 .hero-row {
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
   gap: 14px;
 }
 
@@ -1111,96 +1107,6 @@
   display: none;
 }
 
-.reviews-search-wrap {
-  width: min(650px, 92vw);
-  margin: 12px auto 22px;
-  position: relative;
-  z-index: 30;
-}
-
-.reviews-search-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  border: 1px solid rgba(15, 20, 26, 0.12);
-  border-radius: 14px;
-  background: #fff;
-  overflow: visible;
-  box-shadow: 0 14px 28px -24px rgba(15, 20, 26, 0.55);
-}
-
-.reviews-search-input {
-  border: 0;
-  background: transparent;
-  padding: 14px 16px;
-  font-size: 1rem;
-  outline: none;
-}
-
-.reviews-search-location {
-  position: relative;
-}
-
-.reviews-search-location-btn {
-  border: 0;
-  border-left: 1px solid var(--border);
-  background: #fff;
-  color: #3f3f46;
-  padding: 14px 10px;
-  font-size: 0.95rem;
-  cursor: pointer;
-  min-width: 118px;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.reviews-search-location-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 220px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  box-shadow: 0 18px 34px -20px rgba(15, 20, 26, 0.45);
-  display: grid;
-  padding: 6px;
-  z-index: 5;
-}
-
-.reviews-search-location-menu button {
-  border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 10px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 0.93rem;
-}
-
-.reviews-search-location-menu button:hover {
-  background: #f4f6fb;
-}
-
-.reviews-search-submit {
-  border: 0;
-  background: #e74c2e;
-  color: #fff;
-  height: 100%;
-  padding: 0 18px;
-  font-size: 1.1rem;
-  cursor: pointer;
-  border-top-right-radius: 13px;
-  border-bottom-right-radius: 13px;
-}
-
-.reviews-search-error {
-  margin-top: 6px;
-  color: #b91c1c;
-  font-size: 0.85rem;
-  padding-left: 8px;
-}
-
 .wallet-modal-overlay {
   position: fixed;
   inset: 0;
@@ -1602,33 +1508,6 @@
     background: rgba(15, 20, 26, 0.2);
     z-index: 1;
     cursor: default;
-  }
-
-  .reviews-search-bar {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    border-radius: 14px;
-    padding: 0;
-    gap: 0;
-  }
-
-  .reviews-search-input {
-    padding: 12px 12px;
-  }
-
-  .reviews-search-location-btn {
-    border-left: 1px solid var(--border);
-    background: #fff;
-    padding: 12px 10px;
-    min-width: 0;
-  }
-
-  .reviews-search-submit {
-    border-radius: 0;
-    border-top-right-radius: 13px;
-    border-bottom-right-radius: 13px;
-    height: 100%;
-    width: auto;
-    padding: 0 14px;
   }
 }
 

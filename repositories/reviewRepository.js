@@ -122,17 +122,7 @@ async function upsertReviewAnchor(dbClient, {
   return result.rows[0] || null;
 }
 
-async function listReviews(dbClient, {
-  limit,
-  offset,
-  establishmentId,
-  userId,
-  sort,
-  tag,
-  search,
-  location,
-  country,
-}) {
+async function listReviews(dbClient, { limit, offset, establishmentId, userId, sort, tag }) {
   const values = [];
   const whereParts = [];
 
@@ -155,34 +145,6 @@ async function listReviews(dbClient, {
         WHERE lower(trim(t.tag_value)) = lower(trim($${values.length}))
       )`
     );
-  }
-  if (search) {
-    values.push(`%${String(search).toLowerCase()}%`);
-    whereParts.push(
-      `(
-        lower(COALESCE(r.title, '')) LIKE $${values.length}
-        OR lower(COALESCE(r.description, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.name, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.address, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.district, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.state_region, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.country, '')) LIKE $${values.length}
-      )`
-    );
-  }
-  if (location) {
-    values.push(`%${String(location).toLowerCase()}%`);
-    whereParts.push(
-      `(
-        lower(COALESCE(e.district, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.state_region, '')) LIKE $${values.length}
-        OR lower(COALESCE(e.address, '')) LIKE $${values.length}
-      )`
-    );
-  }
-  if (country) {
-    values.push(`%${String(country).toLowerCase()}%`);
-    whereParts.push(`lower(COALESCE(e.country, '')) LIKE $${values.length}`);
   }
 
   const whereClause = whereParts.length > 0 ? `WHERE ${whereParts.join(' AND ')}` : '';
@@ -223,7 +185,6 @@ async function listReviews(dbClient, {
         '{}'::text[]
       ) AS evidence_images
     FROM reviews r
-    LEFT JOIN establishments e ON e.id = r.establishment_id
     LEFT JOIN users u ON u.id = r.user_id
     LEFT JOIN review_evidence re ON re.review_id = r.id
     LEFT JOIN review_anchors ra ON ra.review_id = r.id
@@ -237,7 +198,6 @@ async function listReviews(dbClient, {
   const countResult = await dbClient.query(
     `SELECT COUNT(*)::int AS total
      FROM reviews r
-     LEFT JOIN establishments e ON e.id = r.establishment_id
      ${whereClause}`,
     values.slice(0, values.length - 2)
   );
