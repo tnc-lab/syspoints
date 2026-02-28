@@ -28,6 +28,7 @@ async function setDefaultUserAvatar(defaultUserAvatarUrl) {
     search_saved_establishments_enabled: true,
     allow_global_category_search: true,
     require_profile_completion: false,
+    i18n_translations_json: null,
   };
 
   return updateConfig(
@@ -50,6 +51,7 @@ async function setDefaultUserAvatar(defaultUserAvatarUrl) {
       search_saved_establishments_enabled: Boolean(base.search_saved_establishments_enabled ?? true),
       allow_global_category_search: Boolean(base.allow_global_category_search ?? true),
       require_profile_completion: Boolean(base.require_profile_completion ?? false),
+      i18n_translations_json: base.i18n_translations_json || null,
     }
   );
 }
@@ -74,6 +76,7 @@ async function setWalletLogo(walletKey, walletLogoUrl) {
     search_saved_establishments_enabled: true,
     allow_global_category_search: true,
     require_profile_completion: false,
+    i18n_translations_json: null,
   };
 
   return updateConfig(
@@ -96,6 +99,7 @@ async function setWalletLogo(walletKey, walletLogoUrl) {
       search_saved_establishments_enabled: Boolean(base.search_saved_establishments_enabled ?? true),
       allow_global_category_search: Boolean(base.allow_global_category_search ?? true),
       require_profile_completion: Boolean(base.require_profile_completion ?? false),
+      i18n_translations_json: base.i18n_translations_json || null,
     }
   );
 }
