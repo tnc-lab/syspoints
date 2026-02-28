@@ -540,6 +540,9 @@ async function listReviews(req, res, next) {
     const establishmentId = req.query.establishment_id || null;
     const userId = req.query.user_id || null;
     const sort = req.query.sort || null;
+    const search = req.query.search == null ? '' : String(req.query.search).trim();
+    const location = req.query.location == null ? '' : String(req.query.location).trim();
+    const country = req.query.country == null ? '' : String(req.query.country).trim();
     const rawTag = req.query.tag;
     const tag = typeof rawTag === 'string' ? rawTag.trim() : null;
 
@@ -565,6 +568,15 @@ async function listReviews(req, res, next) {
     if (tag && tag.length > 30) {
       throw new ApiError(400, 'tag must be at most 30 characters');
     }
+    if (search.length > 150) {
+      throw new ApiError(400, 'search must be at most 150 characters');
+    }
+    if (location.length > 120) {
+      throw new ApiError(400, 'location must be at most 120 characters');
+    }
+    if (country.length > 50) {
+      throw new ApiError(400, 'country must be at most 50 characters');
+    }
 
     const result = await reviewService.listReviews({
       page,
@@ -572,6 +584,9 @@ async function listReviews(req, res, next) {
       establishmentId,
       userId,
       sort,
+      search,
+      location,
+      country,
       tag: tag || null,
     });
 

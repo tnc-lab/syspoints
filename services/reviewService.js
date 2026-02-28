@@ -272,7 +272,7 @@ async function getReviewByIdService(id) {
   return formatReviewResponse(review, review.evidence_images || []);
 }
 
-async function listReviewsService({ page, pageSize, establishmentId, userId, sort, tag }) {
+async function listReviewsService({ page, pageSize, establishmentId, userId, sort, tag, search, location, country }) {
   const offset = (page - 1) * pageSize;
   const { rows, total } = await listReviewsRepo({ query }, {
     limit: pageSize,
@@ -281,6 +281,9 @@ async function listReviewsService({ page, pageSize, establishmentId, userId, sor
     userId,
     sort,
     tag,
+    search,
+    location,
+    country,
   });
 
   const data = rows.map((review) =>
