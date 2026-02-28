@@ -76,6 +76,19 @@ function validatePayload(payload) {
   ) {
     return 'other_wallet_logo_url must be a valid URL';
   }
+  if (
+    payload.i18n_translations_json != null &&
+    payload.i18n_translations_json !== ''
+  ) {
+    if (typeof payload.i18n_translations_json !== 'string') {
+      return 'i18n_translations_json must be a string';
+    }
+    try {
+      JSON.parse(payload.i18n_translations_json);
+    } catch {
+      return 'i18n_translations_json must be valid JSON';
+    }
+  }
   return null;
 }
 

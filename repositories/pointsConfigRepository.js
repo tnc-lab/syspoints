@@ -17,7 +17,8 @@ async function getCurrentConfig(dbClient) {
       max_review_tags,
       search_saved_establishments_enabled,
       allow_global_category_search,
-      require_profile_completion
+      require_profile_completion,
+      i18n_translations_json
      FROM points_config
      ORDER BY created_at DESC
      LIMIT 1`
@@ -45,8 +46,9 @@ async function updateConfig(dbClient, payload) {
       max_review_tags,
       search_saved_establishments_enabled,
       allow_global_category_search,
-      require_profile_completion
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+      require_profile_completion,
+      i18n_translations_json
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
      RETURNING
       image_points_yes,
       image_points_no,
@@ -64,7 +66,8 @@ async function updateConfig(dbClient, payload) {
       max_review_tags,
       search_saved_establishments_enabled,
       allow_global_category_search,
-      require_profile_completion`,
+      require_profile_completion,
+      i18n_translations_json`,
     [
       payload.image_points_yes,
       payload.image_points_no,
@@ -83,6 +86,7 @@ async function updateConfig(dbClient, payload) {
       Boolean(payload.search_saved_establishments_enabled),
       Boolean(payload.allow_global_category_search),
       Boolean(payload.require_profile_completion),
+      payload.i18n_translations_json || null,
     ]
   );
 
