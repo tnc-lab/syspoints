@@ -36,6 +36,7 @@ const HOME_REVIEW_DESCRIPTION_MAX_CHARS = 200
 const MAP_SEARCH_RESULT_LIMIT = 6
 const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 const OSM_EMBED_BASE_URL = "https://www.openstreetmap.org/export/embed.html"
+const OSM_EMBED_DELTA = 0.01
 const DEFAULT_MAP_VIEW = {
   latitude: -12.0464,
   longitude: -77.0428,
@@ -425,8 +426,7 @@ const buildEmbeddedMapUrl = ({ latitude, longitude }) => {
   const lat = toNumberOrNull(latitude)
   const lon = toNumberOrNull(longitude)
   if (lat == null || lon == null) return ""
-  const delta = 0.01
-  const bbox = [lon - delta, lat - delta, lon + delta, lat + delta].join(",")
+  const bbox = [lon - OSM_EMBED_DELTA, lat - OSM_EMBED_DELTA, lon + OSM_EMBED_DELTA, lat + OSM_EMBED_DELTA].join(",")
   return `${OSM_EMBED_BASE_URL}?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat}%2C${lon}`
 }
 
@@ -724,6 +724,7 @@ function App() {
   const activeReviewSubmissionIdRef = useRef(null)
   const cancelledReviewSubmissionIdsRef = useRef(new Set())
   const reviewLocationMenuRef = useRef(null)
+  const mapDragStateRef = useRef(null)
 
   const [profile, setProfile] = useState({
     name: "",
@@ -751,6 +752,9 @@ function App() {
     resolvedId: "",
     resolving: false,
     geolocating: false,
+    pickingFromMap: false,
+    mapDragging: false,
+    mapInteractionMode: "move",
     mapCenter: { ...DEFAULT_MAP_VIEW },
   })
   const [imageSuggestions, setImageSuggestions] = useState({
@@ -1143,6 +1147,9 @@ function App() {
       resolvedId: "",
       resolving: false,
       geolocating: false,
+      pickingFromMap: false,
+      mapDragging: false,
+      mapInteractionMode: "move",
       mapCenter: { ...DEFAULT_MAP_VIEW },
     })
     setImageSuggestions({
@@ -1464,6 +1471,9 @@ function App() {
       resolvedId: "",
       resolving: false,
       geolocating: false,
+      pickingFromMap: false,
+      mapDragging: false,
+      mapInteractionMode: "move",
       mapCenter: { ...DEFAULT_MAP_VIEW },
     })
     setImageSuggestions({
@@ -2902,12 +2912,11 @@ function App() {
 
     setLocationSearch((prev) => ({ ...prev, loading: true, error: "", results: [] }))
     try {
-      const isGlobalCategory = establishmentCategory === "Others"
       const response = await apiFetch("/establishments/search-location", {
         method: "POST",
         body: JSON.stringify({
           query,
-          category: isGlobalCategory ? null : establishmentCategory,
+          category: null,
           limit: MAP_SEARCH_RESULT_LIMIT,
         }),
       })
@@ -3094,6 +3103,146 @@ function App() {
         error: error?.message || t("review.location.locateCurrentFailed"),
       }))
     }
+  }
+
+  const resolveMapPointFromEvent = (event) => {
+    if (!event?.currentTarget) return
+
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect?.width || !rect?.height) return null
+
+    const xRatio = Math.min(Math.max((event.clientX - rect.left) / rect.width, 0), 1)
+    const yRatio = Math.min(Math.max((event.clientY - rect.top) / rect.height, 0), 1)
+    const centerLat = toNumberOrNull(locationSearch.mapCenter?.latitude) ?? DEFAULT_MAP_VIEW.latitude
+    const centerLon = toNumberOrNull(locationSearch.mapCenter?.longitude) ?? DEFAULT_MAP_VIEW.longitude
+    const west = centerLon - OSM_EMBED_DELTA
+    const east = centerLon + OSM_EMBED_DELTA
+    const north = centerLat + OSM_EMBED_DELTA
+    const south = centerLat - OSM_EMBED_DELTA
+    const longitude = west + (east - west) * xRatio
+    const latitude = north - (north - south) * yRatio
+    return { latitude, longitude }
+  }
+
+  const startMapDrag = (event) => {
+    if (locationSearch.mapInteractionMode !== "move") return
+    if (locationSearch.loading || locationSearch.geolocating || locationSearch.resolving || locationSearch.pickingFromMap) return
+    if (!event?.currentTarget) return
+    if (event.target?.closest?.(".map-overlay-controls")) return
+    const rect = event.currentTarget.getBoundingClientRect()
+    if (!rect?.width || !rect?.height) return
+    mapDragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startCenterLat: toNumberOrNull(locationSearch.mapCenter?.latitude) ?? DEFAULT_MAP_VIEW.latitude,
+      startCenterLon: toNumberOrNull(locationSearch.mapCenter?.longitude) ?? DEFAULT_MAP_VIEW.longitude,
+      width: rect.width,
+      height: rect.height,
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    setLocationSearch((prev) => ({ ...prev, mapDragging: true, error: "" }))
+  }
+
+  const moveMapDrag = (event) => {
+    if (locationSearch.mapInteractionMode !== "move") return
+    const drag = mapDragStateRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+    const lonPerPixel = (OSM_EMBED_DELTA * 2) / drag.width
+    const latPerPixel = (OSM_EMBED_DELTA * 2) / drag.height
+    const nextLongitude = drag.startCenterLon - dx * lonPerPixel
+    const nextLatitude = drag.startCenterLat + dy * latPerPixel
+
+    setLocationSearch((prev) => ({
+      ...prev,
+      mapCenter: {
+        latitude: nextLatitude,
+        longitude: nextLongitude,
+      },
+      error: "",
+    }))
+  }
+
+  const endMapDrag = (event) => {
+    if (!mapDragStateRef.current) return
+    if (event?.currentTarget && mapDragStateRef.current.pointerId != null) {
+      event.currentTarget.releasePointerCapture?.(mapDragStateRef.current.pointerId)
+    }
+    mapDragStateRef.current = null
+    setLocationSearch((prev) => ({ ...prev, mapDragging: false }))
+  }
+
+  const pickLocationFromMap = async (event) => {
+    if (locationSearch.loading || locationSearch.geolocating || locationSearch.resolving || locationSearch.pickingFromMap) return
+    const point = resolveMapPointFromEvent(event)
+    if (!point) return
+    const { latitude, longitude } = point
+
+    setLocationSearch((prev) => ({ ...prev, pickingFromMap: true, error: "" }))
+    setReviewForm((prev) => ({ ...prev, establishment_id: "" }))
+
+    let selectedFromMap = {
+      id: `map-${latitude.toFixed(6)}-${longitude.toFixed(6)}`,
+      name: t("review.location.defaultName"),
+      address: `Lat ${latitude.toFixed(6)}, Lng ${longitude.toFixed(6)}`,
+      country: "",
+      state_region: "",
+      district: "",
+      latitude,
+      longitude,
+      category: String(establishmentCategory || "Services"),
+      image_url: "",
+      suggested_images: [],
+      source: "map-click",
+    }
+
+    try {
+      const params = new URLSearchParams({
+        format: "jsonv2",
+        lat: String(latitude),
+        lon: String(longitude),
+        addressdetails: "1",
+      })
+      const response = await fetch(`${NOMINATIM_REVERSE_URL}?${params.toString()}`, {
+        headers: { "Accept-Language": "es,en" },
+      })
+      if (!response.ok) {
+        throw new Error(t("review.location.resolveAddressFailed"))
+      }
+      const data = await response.json()
+      const addr = data?.address || {}
+      selectedFromMap = {
+        ...selectedFromMap,
+        id: String(data?.place_id || selectedFromMap.id),
+        name: String(
+          data?.name ||
+            addr?.amenity ||
+            addr?.shop ||
+            addr?.building ||
+            data?.display_name?.split(",")?.[0] ||
+            selectedFromMap.name
+        ).trim(),
+        address: String(data?.display_name || "").trim() || selectedFromMap.address,
+        country: String(addr?.country || "").trim(),
+        state_region: String(addr?.state || addr?.region || addr?.county || "").trim(),
+        district: String(addr?.city_district || addr?.suburb || addr?.city || addr?.town || "").trim(),
+      }
+    } catch {
+      // Fallback to raw coordinates if reverse geocoding fails.
+    }
+
+    setLocationSearch((prev) => ({
+      ...prev,
+      selected: selectedFromMap,
+      resolvedId: "",
+      mapCenter: { latitude, longitude },
+      pickingFromMap: false,
+      error: "",
+    }))
+    await loadEstablishmentImageSuggestions(selectedFromMap)
   }
 
   const resolveAndSelectEstablishment = async () => {
@@ -4334,8 +4483,8 @@ function App() {
         )}
 
         {activePage === "review" && (
-          <div className="grid">
-            <section className="panel" style={{ gridColumn: "1 / 2" }}>
+          <div className="grid review-grid">
+            <section className="panel review-panel">
               <div className="panel-header">
                 <h3 className="panel-title">{t("review.form.title")}</h3>
                 <span className="pill">{t("review.form.pill")}</span>
@@ -4458,7 +4607,7 @@ function App() {
                               </div>
                             )}
                             <div style={{ display: "grid", gap: "4px" }}>
-                              {locationSearch.selected?.source === "geolocation" ? (
+                              {["geolocation", "map-click"].includes(String(locationSearch.selected?.source || "")) ? (
                                 <div style={{ display: "grid", gap: "6px" }}>
                                   <label style={{ fontSize: "12px", color: "var(--muted)" }}>
                                     {t("review.step2.nameEditableLabel")}
@@ -4479,6 +4628,26 @@ function App() {
                                   />
                                   <span style={{ fontSize: "12px", color: "var(--muted)" }}>
                                     {t("review.step2.nameHint")}
+                                  </span>
+                                  <label style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                    {t("review.step2.addressEditableLabel")}
+                                  </label>
+                                  <input
+                                    className="input"
+                                    placeholder={t("review.step2.addressPlaceholder")}
+                                    value={locationSearch.selected?.address || ""}
+                                    onChange={(event) => {
+                                      const nextAddress = event.target.value
+                                      setLocationSearch((prev) => ({
+                                        ...prev,
+                                        selected: prev.selected ? { ...prev.selected, address: nextAddress } : prev.selected,
+                                        error: "",
+                                      }))
+                                    }}
+                                    disabled={locationSearch.resolving}
+                                  />
+                                  <span style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                    {t("review.step2.addressHint")}
                                   </span>
                                 </div>
                               ) : (
@@ -4629,15 +4798,85 @@ function App() {
                         )}
                         {!selectedEstablishment && (
                           <div className="selected-establishment-card">
-                            <iframe
-                              title={t("review.step2.locationMapTitle")}
-                              src={buildEmbeddedMapUrl({
-                                latitude: locationSearch.mapCenter.latitude,
-                                longitude: locationSearch.mapCenter.longitude,
-                              })}
-                              loading="lazy"
-                              referrerPolicy="no-referrer-when-downgrade"
-                            />
+                            <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                              {locationSearch.mapInteractionMode === "move"
+                                ? t("review.step2.mapMoveHint")
+                                : t("review.step2.mapPickHint")}
+                            </div>
+                            <div
+                              className={`location-map-picker ${locationSearch.mapInteractionMode === "move" ? "move-mode" : "pick-mode"} ${locationSearch.mapDragging ? "dragging" : ""}`}
+                              onClick={locationSearch.mapInteractionMode === "pick" ? pickLocationFromMap : undefined}
+                              onPointerDown={startMapDrag}
+                              onPointerMove={moveMapDrag}
+                              onPointerUp={endMapDrag}
+                              onPointerCancel={endMapDrag}
+                              onPointerLeave={(event) => {
+                                if (locationSearch.mapInteractionMode === "move" && locationSearch.mapDragging) {
+                                  endMapDrag(event)
+                                }
+                              }}
+                            >
+                              <div className="map-overlay-controls">
+                                <div className="map-interaction-toggle">
+                                  <button
+                                    type="button"
+                                    className={`ghost-button map-icon-button ${locationSearch.mapInteractionMode === "move" ? "active" : ""}`}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      mapDragStateRef.current = null
+                                      setLocationSearch((prev) => ({ ...prev, mapInteractionMode: "move", mapDragging: false }))
+                                    }}
+                                    aria-label={t("review.step2.mapMoveMode")}
+                                    title={t("review.step2.mapMoveMode")}
+                                  >
+                                    <svg className="map-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                      <path
+                                        d="M12 3l3 3h-2v3h3V7l3 3-3 3V11h-3v3h2l-3 3-3-3h2v-3H8v2l-3-3 3-3v2h3V6H9l3-3z"
+                                        fill="currentColor"
+                                      />
+                                    </svg>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`ghost-button map-icon-button ${locationSearch.mapInteractionMode === "pick" ? "active" : ""}`}
+                                    onPointerDown={(event) => event.stopPropagation()}
+                                    onClick={(event) => {
+                                      event.stopPropagation()
+                                      mapDragStateRef.current = null
+                                      setLocationSearch((prev) => ({ ...prev, mapInteractionMode: "pick", mapDragging: false }))
+                                    }}
+                                    aria-label={t("review.step2.mapPickMode")}
+                                    title={t("review.step2.mapPickMode")}
+                                  >
+                                    <svg className="map-icon" viewBox="0 0 24 24" aria-hidden="true">
+                                      <path
+                                        d="M12 2a7 7 0 00-7 7c0 4.8 5 10.8 6.5 12.5a.65.65 0 001 0C14 19.8 19 13.8 19 9a7 7 0 00-7-7zm0 9.5A2.5 2.5 0 1112 6a2.5 2.5 0 010 5.5z"
+                                        fill="currentColor"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                              <iframe
+                                className="location-map-frame"
+                                title={t("review.step2.locationMapTitle")}
+                                src={buildEmbeddedMapUrl({
+                                  latitude: locationSearch.mapCenter.latitude,
+                                  longitude: locationSearch.mapCenter.longitude,
+                                })}
+                                loading="lazy"
+                                referrerPolicy="no-referrer-when-downgrade"
+                              />
+                              {locationSearch.mapInteractionMode === "pick" && (
+                                <div className="location-map-crosshair" aria-hidden="true" />
+                              )}
+                            </div>
+                            {locationSearch.pickingFromMap && (
+                              <div style={{ fontSize: "12px", color: "var(--muted)" }}>
+                                {t("review.step2.mapPicking")}
+                              </div>
+                            )}
                           </div>
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
