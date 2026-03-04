@@ -47,6 +47,12 @@ const DEFAULT_REVIEW_FEED_LOCATION = {
   country: "PE",
   label: "Lima, PE",
 }
+const GLOBAL_REVIEW_FEED_LOCATION = {
+  mode: "global",
+  location: "",
+  country: "",
+  label: "Global",
+}
 const ESTABLISHMENT_CATEGORIES = [
   "Restaurant",
   "Cafe",
@@ -2573,6 +2579,20 @@ function App() {
     })
   }
 
+  const useGlobalReviewLocation = () => {
+    setReviewFeedLocation((prev) => ({
+      ...prev,
+      ...GLOBAL_REVIEW_FEED_LOCATION,
+      loading: false,
+      error: "",
+    }))
+    setReviewLocationMenuOpen(false)
+    fetchReviews(1, {
+      location: "",
+      country: "",
+    })
+  }
+
   const useCurrentReviewLocation = async () => {
     if (!navigator?.geolocation) {
       setReviewFeedLocation((prev) => ({
@@ -4130,6 +4150,7 @@ function App() {
                   </button>
                   {reviewLocationMenuOpen && (
                     <div className="reviews-search-location-menu">
+                      <button type="button" onClick={useGlobalReviewLocation}>Global</button>
                       <button type="button" onClick={useCurrentReviewLocation}>Current location</button>
                       <button type="button" onClick={useDefaultReviewLocation}>Lima, PE (default)</button>
                     </div>
