@@ -457,6 +457,72 @@
   font-weight: 600;
 }
 
+.evidence-uploader-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(37, 99, 235, 0.08), transparent 48%),
+    radial-gradient(circle at 0% 100%, rgba(225, 29, 72, 0.08), transparent 52%),
+    #fff;
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-mode-tabs {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.evidence-mode-tab {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-weight: 600;
+  background: #fff;
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 0.18s ease, background-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.evidence-mode-tab.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(37, 99, 235, 0.08);
+  transform: translateY(-1px);
+}
+
+.evidence-dropzone {
+  border: 1.5px dashed rgba(37, 99, 235, 0.35);
+  border-radius: 12px;
+  padding: 14px;
+  background: rgba(239, 246, 255, 0.55);
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-dropzone-title {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+
+.evidence-dropzone-hint {
+  font-size: 0.84rem;
+  color: var(--muted);
+}
+
+.evidence-dropzone .file-upload {
+  flex-wrap: wrap;
+}
+
+.evidence-paste-input {
+  min-height: 98px;
+  resize: vertical;
+  background: #fff;
+}
+
 .reviews-grid {
   display: grid;
   gap: 0;
@@ -2133,5 +2199,9 @@
 
   .review-detail-carousel-wrap {
     height: 220px;
+  }
+
+  .evidence-mode-tabs {
+    grid-template-columns: 1fr;
   }
 }

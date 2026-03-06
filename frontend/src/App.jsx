@@ -784,6 +784,7 @@ function App() {
     error: "",
   })
   const [uploadingReviewEvidence, setUploadingReviewEvidence] = useState(false)
+  const [evidenceInputMode, setEvidenceInputMode] = useState("upload")
   const [dailyLimitStatus, setDailyLimitStatus] = useState({
     loading: false,
     canReviewToday: true,
@@ -1498,6 +1499,7 @@ function App() {
       error: "",
     })
     setImageSourceMode("existing")
+    setEvidenceInputMode("upload")
     setReviewSubmissionState({ key: "", signature: "" })
     setDailyLimitStatus({
       loading: false,
@@ -1582,9 +1584,6 @@ function App() {
         setReviewWizardStatus(t("review.validation.titleNoEmoji"))
         return
       }
-    }
-
-    if (currentStep === 4) {
       const normalizedDescription = normalizeReviewText(reviewForm.description)
       if (!normalizedDescription) {
         setReviewWizardStatus(t("review.validation.descriptionRequired"))
@@ -1602,9 +1601,6 @@ function App() {
         setReviewWizardStatus(t("review.validation.descriptionNoEmoji"))
         return
       }
-    }
-
-    if (currentStep === 8) {
       if (!parsedReviewTags.length) {
         setReviewWizardStatus(t("review.validation.tagsRequired"))
         return
@@ -1626,15 +1622,12 @@ function App() {
       }
     }
 
-    if (currentStep === 6) {
+    if (currentStep === 5) {
       const numericPrice = Number(reviewForm.price)
       if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
         setReviewWizardStatus(t("review.validation.pricePositive"))
         return
       }
-    }
-
-    if (currentStep === 7) {
       if (!isValidReviewPurchaseUrl(reviewForm.purchase_url)) {
         setReviewWizardStatus(t("review.validation.purchaseUrl"))
         return
@@ -2010,6 +2003,25 @@ function App() {
       ...prev,
       evidence_images: prev.evidence_images.filter((_, index) => index !== indexToRemove),
     }))
+  }
+
+  const handleReviewEvidencePaste = async (event) => {
+    const clipboardItems = Array.from(event?.clipboardData?.items || [])
+    const imageItem = clipboardItems.find((item) =>
+      item?.kind === "file" && String(item?.type || "").startsWith("image/")
+    )
+    if (!imageItem) {
+      setAuthStatus(t("review.step9.pasteNoImage"))
+      return
+    }
+
+    event.preventDefault()
+    const file = imageItem.getAsFile()
+    if (!file) {
+      setAuthStatus(t("review.step9.pasteNoImage"))
+      return
+    }
+    await uploadReviewEvidenceImage(file)
   }
 
   const uploadEditingEstablishmentImage = async (file) => {
@@ -4628,7 +4640,7 @@ function App() {
                               </div>
                             )}
                             <div style={{ display: "grid", gap: "4px" }}>
-                              {["geolocation", "map-click"].includes(String(locationSearch.selected?.source || "")) ? (
+                              {["geolocation", "map-click", "search"].includes(String(locationSearch.selected?.source || "")) ? (
                                 <div style={{ display: "grid", gap: "6px" }}>
                                   <label style={{ fontSize: "12px", color: "var(--muted)" }}>
                                     {t("review.step2.nameEditableLabel")}
@@ -4904,6 +4916,9 @@ function App() {
                           <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(1)}>
                             {t("common.back")}
                           </button>
+                          <button type="button" className="ghost-button" onClick={() => resetReviewDraft({ resetCategory: true })}>
+                            {t("common.reset")}
+                          </button>
                           <button type="button" className="primary-button" onClick={() => goToNextWizardStep(2, 3)}>
                             {t("common.next")}
                           </button>
@@ -4937,25 +4952,7 @@ function App() {
                             {t("review.step3.invalid")}
                           </div>
                         )}
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(2)}>
-                            {t("common.back")}
-                          </button>
-                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(3, 4)}>
-                            {t("common.next")}
-                          </button>
-                        </div>
-                    </>
-                  </div>
-                )}
-
-                {reviewWizardStep === 4 && hasValidReviewTitle && (
-                  <div className="selected-establishment-card">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>{t("review.step4.title")}</strong>
-                    </div>
-                    <>
-                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "6px", marginBottom: "6px" }}>
                           {t("review.step4.hint")}
                         </div>
                         <div style={{ marginBottom: "6px", fontSize: "12px", color: "#6b7280" }}>
@@ -4970,11 +4967,38 @@ function App() {
                             setReviewForm({ ...reviewForm, description: event.target.value })
                           }
                         />
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "8px", marginBottom: "6px" }}>
+                          {tf("review.step8.hint", { maxTags: maxReviewTags, maxTagChars: MAX_REVIEW_TAG_CHARS })}
+                        </div>
+                        <div style={{ marginBottom: "6px", fontSize: "12px", color: parsedReviewTags.length > maxReviewTags ? "#b91c1c" : "#6b7280" }}>
+                          {tf("review.step8.counter", { count: parsedReviewTags.length, maxTags: maxReviewTags })}
+                        </div>
+                        <input
+                          className="input"
+                          placeholder={t("review.step8.placeholder")}
+                          value={reviewForm.tags}
+                          onChange={(event) =>
+                            setReviewForm({ ...reviewForm, tags: event.target.value })
+                          }
+                        />
+                        {parsedReviewTags.length > maxReviewTags && (
+                          <div style={{ fontSize: "12px", color: "#b91c1c" }}>
+                            {tf("review.step8.overLimit", { maxTags: maxReviewTags })}
+                          </div>
+                        )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(3)}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(2)}>
                             {t("common.back")}
                           </button>
-                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(4, 5)}>
+                          <button type="button" className="ghost-button" onClick={() => resetReviewDraft({ resetCategory: true })}>
+                            {t("common.reset")}
+                          </button>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            onClick={() => goToNextWizardStep(3, 5)}
+                            disabled={parsedReviewTags.length > maxReviewTags}
+                          >
                             {t("common.next")}
                           </button>
                         </div>
@@ -5014,25 +5038,7 @@ function App() {
                         <div style={{ fontSize: "14px", color: "#374151", marginTop: "6px" }}>
                           {tf("review.step5.starsValue", { stars: reviewForm.stars })}
                         </div>
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(4)}>
-                            {t("common.back")}
-                          </button>
-                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(5, 6)}>
-                            {t("common.next")}
-                          </button>
-                        </div>
-                    </>
-                  </div>
-                )}
-
-                {reviewWizardStep === 6 && hasValidReviewTitle && (
-                  <div className="selected-establishment-card">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>{t("review.step6.title")}</strong>
-                    </div>
-                    <>
-                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "8px", marginBottom: "6px" }}>
                           {t("review.step6.hint")}
                         </div>
                         <input
@@ -5044,25 +5050,7 @@ function App() {
                             setReviewForm({ ...reviewForm, price: event.target.value })
                           }
                         />
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(5)}>
-                            {t("common.back")}
-                          </button>
-                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(6, 7)}>
-                            {t("common.next")}
-                          </button>
-                        </div>
-                    </>
-                  </div>
-                )}
-
-                {reviewWizardStep === 7 && hasValidReviewTitle && (
-                  <div className="selected-establishment-card">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>{t("review.step7.title")}</strong>
-                    </div>
-                    <>
-                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
+                        <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "8px", marginBottom: "6px" }}>
                           {t("review.step7.hint")}
                         </div>
                         <input
@@ -5074,52 +5062,13 @@ function App() {
                           }
                         />
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(6)}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(3)}>
                             {t("common.back")}
                           </button>
-                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(7, 8)}>
-                            {t("common.next")}
+                          <button type="button" className="ghost-button" onClick={() => resetReviewDraft({ resetCategory: true })}>
+                            {t("common.reset")}
                           </button>
-                        </div>
-                    </>
-                  </div>
-                )}
-
-                {reviewWizardStep === 8 && hasValidReviewTitle && (
-                  <div className="selected-establishment-card">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-                      <strong>{t("review.step8.title")}</strong>
-                    </div>
-                    <>
-                        <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
-                          {tf("review.step8.hint", { maxTags: maxReviewTags, maxTagChars: MAX_REVIEW_TAG_CHARS })}
-                        </div>
-                        <div style={{ marginBottom: "6px", fontSize: "12px", color: parsedReviewTags.length > maxReviewTags ? "#b91c1c" : "#6b7280" }}>
-                          {tf("review.step8.counter", { count: parsedReviewTags.length, maxTags: maxReviewTags })}
-                        </div>
-                        <input
-                          className="input"
-                          placeholder={t("review.step8.placeholder")}
-                          value={reviewForm.tags}
-                          onChange={(event) =>
-                            setReviewForm({ ...reviewForm, tags: event.target.value })
-                          }
-                        />
-                        {parsedReviewTags.length > maxReviewTags && (
-                          <div style={{ fontSize: "12px", color: "#b91c1c" }}>
-                            {tf("review.step8.overLimit", { maxTags: maxReviewTags })}
-                          </div>
-                        )}
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(7)}>
-                            {t("common.back")}
-                          </button>
-                          <button
-                            type="button"
-                            className="primary-button"
-                            onClick={() => goToNextWizardStep(8, 9)}
-                            disabled={parsedReviewTags.length > maxReviewTags}
-                          >
+                          <button type="button" className="primary-button" onClick={() => goToNextWizardStep(5, 9)}>
                             {t("common.next")}
                           </button>
                         </div>
@@ -5136,13 +5085,63 @@ function App() {
                         <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "6px" }}>
                           {tf("review.step9.hint", { minEvidence: MIN_REVIEW_EVIDENCE_IMAGES, maxEvidence: MAX_REVIEW_EVIDENCE_IMAGES })}
                         </div>
-                        <FileUpload
-                          accept="image/jpeg,image/png,image/webp"
-                          onFile={(file) => uploadReviewEvidenceImage(file)}
-                          disabled={!token || uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
-                          buttonText={t("review.fileUpload.uploadEvidence")}
-                          emptyText={t("review.fileUpload.empty")}
-                        />
+                        <div className="evidence-uploader-card">
+                          <div className="evidence-mode-tabs">
+                            <button
+                              type="button"
+                              className={`evidence-mode-tab ${evidenceInputMode === "upload" ? "active" : ""}`}
+                              onClick={() => setEvidenceInputMode("upload")}
+                              disabled={uploadingReviewEvidence}
+                            >
+                              {t("review.step9.uploadMode")}
+                            </button>
+                            <button
+                              type="button"
+                              className={`evidence-mode-tab ${evidenceInputMode === "paste" ? "active" : ""}`}
+                              onClick={() => setEvidenceInputMode("paste")}
+                              disabled={uploadingReviewEvidence}
+                            >
+                              {t("review.step9.pasteMode")}
+                            </button>
+                          </div>
+
+                          {evidenceInputMode === "upload" ? (
+                            <div className="evidence-dropzone">
+                              <div className="evidence-dropzone-title">
+                                {t("review.step9.uploadMode")}
+                              </div>
+                              <div className="evidence-dropzone-hint">
+                                {t("review.step9.uploadBoxHint")}
+                              </div>
+                              <FileUpload
+                                accept="image/jpeg,image/png,image/webp"
+                                onFile={(file) => uploadReviewEvidenceImage(file)}
+                                disabled={!token || uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
+                                buttonText={t("review.fileUpload.uploadEvidence")}
+                                emptyText={t("review.fileUpload.empty")}
+                                buttonClass="primary-button"
+                              />
+                            </div>
+                          ) : (
+                            <div className="evidence-dropzone">
+                              <div className="evidence-dropzone-title">
+                                {t("review.step9.pasteMode")}
+                              </div>
+                              <div className="evidence-dropzone-hint">
+                                {t("review.step9.pasteBoxHint")}
+                              </div>
+                              <textarea
+                                className="input evidence-paste-input"
+                                rows={3}
+                                placeholder={t("review.step9.pastePlaceholder")}
+                                onPaste={(event) => {
+                                  void handleReviewEvidencePaste(event)
+                                }}
+                                disabled={!token || uploadingReviewEvidence || reviewForm.evidence_images.length >= MAX_REVIEW_EVIDENCE_IMAGES}
+                              />
+                            </div>
+                          )}
+                        </div>
                         {!token && (
                           <div style={{ fontSize: "12px", color: "#b91c1c" }}>
                             {t("review.step9.loginRequired")}
@@ -5216,7 +5215,7 @@ function App() {
                           </div>
                         )}
                         <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
-                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(8)}>
+                          <button type="button" className="ghost-button" onClick={() => setReviewWizardStep(5)}>
                             {t("common.back")}
                           </button>
                         </div>
