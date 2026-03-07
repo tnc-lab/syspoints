@@ -2164,6 +2164,86 @@
   border-radius: 12px;
 }
 
+.review-share-wrap {
+  margin-top: 10px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-height: 34px;
+  width: 100%;
+}
+
+.review-share-trigger {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #334155;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.review-share-trigger svg {
+  width: 16px;
+  height: 16px;
+}
+
+.review-share-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transform: translateX(-8px);
+  max-width: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 0.24s ease, transform 0.24s ease, max-width 0.28s ease;
+}
+
+.review-share-actions.open {
+  opacity: 1;
+  transform: translateX(0);
+  max-width: 360px;
+  pointer-events: auto;
+}
+
+.review-share-platform-btn {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: 0 8px 16px -10px rgba(15, 20, 26, 0.55);
+  transition: transform 0.2s ease;
+}
+
+.review-share-platform-btn:hover {
+  transform: translateY(-2px);
+}
+
+.review-share-platform-btn:disabled {
+  cursor: not-allowed;
+  transform: none;
+  opacity: 0.75;
+}
+
+.review-share-platform-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.review-share-platform-loading {
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 @media (max-width: 680px) {
   .location-map-picker,
   .location-map-frame {

@@ -1,0 +1,22 @@
+{
+  "name": "review-share",
+  "version": "1.0.0",
+  "description": "Habilita acciones para compartir reviews en redes sociales.",
+  "engine": "syspoints-module-v1",
+  "execution_order": 120,
+  "permissions": ["review:share"],
+  "hooks": {
+    "review_share": {
+      "label_es": "Compartir",
+      "label_en": "Share",
+      "platforms": [
+        "telegram",
+        "x",
+        "whatsapp",
+        "linkedin",
+        "facebook",
+        "instagram"
+      ]
+    }
+  }
+}
