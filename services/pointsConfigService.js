@@ -29,6 +29,7 @@ async function setDefaultUserAvatar(defaultUserAvatarUrl) {
     allow_global_category_search: true,
     require_profile_completion: false,
     i18n_translations_json: null,
+    share_points_bonus: 0,
   };
 
   return updateConfig(
@@ -52,6 +53,7 @@ async function setDefaultUserAvatar(defaultUserAvatarUrl) {
       allow_global_category_search: Boolean(base.allow_global_category_search ?? true),
       require_profile_completion: Boolean(base.require_profile_completion ?? false),
       i18n_translations_json: base.i18n_translations_json || null,
+      share_points_bonus: Number(base.share_points_bonus ?? 0),
     }
   );
 }
@@ -77,6 +79,7 @@ async function setWalletLogo(walletKey, walletLogoUrl) {
     allow_global_category_search: true,
     require_profile_completion: false,
     i18n_translations_json: null,
+    share_points_bonus: 0,
   };
 
   return updateConfig(
@@ -100,6 +103,7 @@ async function setWalletLogo(walletKey, walletLogoUrl) {
       allow_global_category_search: Boolean(base.allow_global_category_search ?? true),
       require_profile_completion: Boolean(base.require_profile_completion ?? false),
       i18n_translations_json: base.i18n_translations_json || null,
+      share_points_bonus: Number(base.share_points_bonus ?? 0),
     }
   );
 }

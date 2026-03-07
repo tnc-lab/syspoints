@@ -40,7 +40,8 @@ export default function Header({
         { key: "admin-moderation", label: t("nav.adminModeration") },
         { key: "admin-establishments", label: t("nav.adminNewEstablishment") },
         { key: "admin-users", label: t("nav.adminUsers") },
-        { key: "admin-config", label: t("nav.adminConfig") }
+        { key: "admin-config", label: t("nav.adminConfig") },
+        { key: "admin-modules", label: t("nav.adminModules") }
       )
     }
 

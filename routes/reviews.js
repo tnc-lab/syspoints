@@ -12,6 +12,7 @@ const {
   listPendingReviewSubmissions,
   approveReviewSubmission,
   rejectReviewSubmission,
+  shareReview,
 } = require('../controllers/reviewsController');
 const { authenticate, authorizeAdmin } = require('../middlewares/auth');
 
@@ -27,6 +28,7 @@ reviewsRouter.get('/my-statuses', authenticate, listMyReviewStatuses);
 reviewsRouter.get('/submissions/pending', authenticate, authorizeAdmin, listPendingReviewSubmissions);
 reviewsRouter.post('/submissions/:id/approve', authenticate, authorizeAdmin, approveReviewSubmission);
 reviewsRouter.post('/submissions/:id/reject', authenticate, authorizeAdmin, rejectReviewSubmission);
+reviewsRouter.post('/:id/share', authenticate, shareReview);
 reviewsRouter.get('/', listReviews);
 reviewsRouter.get('/:id', getReviewById);
 
