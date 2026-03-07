@@ -92,6 +92,23 @@ const WALLET_OPTION_CONFIG = {
     installUrl: "",
   },
 }
+const SHARE_PLATFORM_LABELS = {
+  telegram: "Telegram",
+  x: "X",
+  whatsapp: "WhatsApp",
+  linkedin: "LinkedIn",
+  facebook: "Facebook",
+  instagram: "Instagram",
+}
+const SHARE_PLATFORM_COLORS = {
+  telegram: "#229ED9",
+  x: "#111111",
+  whatsapp: "#25D366",
+  linkedin: "#0A66C2",
+  facebook: "#1877F2",
+  instagram: "#E1306C",
+}
+const DEFAULT_SHARE_PLATFORMS = ["telegram", "x", "whatsapp", "linkedin", "facebook", "instagram"]
 
 const EIP6963_REGISTRY_KEY = "__syspoints_eip6963_registry"
 
@@ -860,6 +877,19 @@ function App() {
   const [moderationSearchApplied, setModerationSearchApplied] = useState("")
   const [adminUsers, setAdminUsers] = useState([])
   const [loadingAdminUsers, setLoadingAdminUsers] = useState(false)
+  const [adminModules, setAdminModules] = useState([])
+  const [loadingAdminModules, setLoadingAdminModules] = useState(false)
+  const [uploadingModuleManifest, setUploadingModuleManifest] = useState(false)
+  const [moduleToggleActionKey, setModuleToggleActionKey] = useState("")
+  const [shareModuleConfig, setShareModuleConfig] = useState({
+    active: false,
+    module_key: "review-share@1.0.0",
+    label_es: "Compartir",
+    label_en: "Share",
+    platforms: [...DEFAULT_SHARE_PLATFORMS],
+  })
+  const [sharingReviewKey, setSharingReviewKey] = useState("")
+  const [shareMenuOpenKey, setShareMenuOpenKey] = useState("")
   const [locale, setLocale] = useState(() => getStoredLocale())
   const [pointsConfig, setPointsConfig] = useState({
     image_points_yes: 0,
@@ -880,6 +910,7 @@ function App() {
     allow_global_category_search: true,
     require_profile_completion: false,
     i18n_translations_json: "",
+    share_points_bonus: 0,
   })
   const [loadingPointsConfig, setLoadingPointsConfig] = useState(false)
   const [uploadingDefaultAvatar, setUploadingDefaultAvatar] = useState(false)
@@ -1753,6 +1784,139 @@ function App() {
     return gallery
   }
 
+  const getShareLabel = () => (locale === "en" ? (shareModuleConfig.label_en || "Share") : (shareModuleConfig.label_es || "Compartir"))
+
+  const renderSharePlatformIcon = (platform) => {
+    if (platform === "telegram") {
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M20.7 4.1L2.9 10.9c-.8.3-.7 1.4.1 1.6l4.6 1.4 1.8 5.4c.2.7 1.1.9 1.6.3l2.6-3 4.8 3.5c.6.4 1.4.1 1.6-.7l2.8-13.7c.2-.9-.7-1.6-1.5-1.3zm-2.1 3.2l-8 7.3-.3 2.5-1.1-3.3-3-1 12.4-5.5z" />
+        </svg>
+      )
+    }
+    if (platform === "x") {
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M5 4h4.1l3.4 4.6L16.6 4H20l-5.8 6.6L21 20h-4.1l-3.9-5.2L8.1 20H4.7l6.1-7L5 4z" />
+        </svg>
+      )
+    }
+    if (platform === "whatsapp") {
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M12 3.5a8.5 8.5 0 00-7.3 12.8L3.5 21l4.8-1.3A8.5 8.5 0 1012 3.5zm4.4 12c-.2.6-1.1 1-1.7 1.1-.5.1-1.2.1-3.5-.8-2.9-1.2-4.8-4.2-4.9-4.4-.2-.2-1.2-1.6-1.2-3.1 0-1.5.8-2.2 1.1-2.5.3-.2.6-.3.8-.3h.6c.2 0 .5-.1.7.4.2.6.8 2 .9 2.2.1.2.1.4 0 .6-.1.2-.2.4-.4.6-.2.2-.3.3-.5.5-.2.2-.3.5-.1.8.2.3.9 1.4 1.9 2.2 1.3 1.1 2.3 1.4 2.7 1.6.3.1.6.1.8-.2.3-.3 1-1.2 1.2-1.6.2-.4.4-.3.7-.2l2.1 1c.3.1.5.2.6.4.1.1.1.8-.1 1.4z" />
+        </svg>
+      )
+    }
+    if (platform === "linkedin") {
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M6.3 8.8A1.9 1.9 0 116.3 5a1.9 1.9 0 010 3.8zM4.8 9.9H7.9V19H4.8V9.9zm5.2 0h3v1.2h.1c.4-.7 1.4-1.4 2.9-1.4 3.1 0 3.7 2 3.7 4.6V19h-3.1v-4.1c0-1 0-2.2-1.4-2.2s-1.6 1-1.6 2.2V19H10V9.9z" />
+        </svg>
+      )
+    }
+    if (platform === "facebook") {
+      return (
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path fill="currentColor" d="M13.4 8.2V6.9c0-.7.5-.9 1-.9h1.8V3.1h-2.5c-2.8 0-3.4 2-3.4 3.3v1.8H8.4V11h1.9v9h3.1v-9h2.4l.4-2.8h-2.8z" />
+        </svg>
+      )
+    }
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path fill="currentColor" d="M7.2 3h9.6A4.2 4.2 0 0121 7.2v9.6a4.2 4.2 0 01-4.2 4.2H7.2A4.2 4.2 0 013 16.8V7.2A4.2 4.2 0 017.2 3zm0 1.8A2.4 2.4 0 004.8 7.2v9.6a2.4 2.4 0 002.4 2.4h9.6a2.4 2.4 0 002.4-2.4V7.2a2.4 2.4 0 00-2.4-2.4H7.2zm10.2 1.5a1.1 1.1 0 110 2.2 1.1 1.1 0 010-2.2zM12 8a4 4 0 110 8 4 4 0 010-8zm0 1.8a2.2 2.2 0 100 4.4 2.2 2.2 0 000-4.4z" />
+      </svg>
+    )
+  }
+
+  const buildReviewSharePayload = (review) => {
+    const establishment = establishmentsById.get(review.establishment_id) || null
+    const establishmentImageUrl = String(establishment?.image_url || "").trim()
+    const descriptionPreview = truncateWithEllipsis(String(review.description || ""), 180)
+    const reviewUrl = `${window.location.origin}?review=${encodeURIComponent(review.id)}`
+    const text = [
+      "Syspoints",
+      review.title || "Review",
+      descriptionPreview,
+      establishmentImageUrl ? `Imagen: ${establishmentImageUrl}` : "",
+      `Review: ${reviewUrl}`,
+    ]
+      .filter(Boolean)
+      .join("\n")
+    return { reviewUrl, text, establishmentImageUrl }
+  }
+
+  const openShareTarget = ({ platform, reviewUrl, text }) => {
+    const encodedUrl = encodeURIComponent(reviewUrl)
+    const encodedText = encodeURIComponent(text)
+    let targetUrl = ""
+
+    if (platform === "telegram") {
+      targetUrl = `https://t.me/share/url?url=${encodedUrl}&text=${encodedText}`
+    } else if (platform === "x") {
+      targetUrl = `https://x.com/intent/tweet?url=${encodedUrl}&text=${encodedText}`
+    } else if (platform === "whatsapp") {
+      targetUrl = `https://api.whatsapp.com/send?text=${encodedText}%20${encodedUrl}`
+    } else if (platform === "linkedin") {
+      // LinkedIn share URLs only guarantee URL preview (title/image/description from page metadata).
+      targetUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodedUrl}`
+    } else if (platform === "facebook") {
+      targetUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`
+    } else if (platform === "instagram") {
+      targetUrl = "https://www.instagram.com/"
+      navigator.clipboard?.writeText(reviewUrl).catch(() => {})
+    }
+
+    if (targetUrl) {
+      window.open(targetUrl, "_blank", "noopener,noreferrer")
+    }
+  }
+
+  const shareReviewToPlatform = async (review, platform) => {
+    if (!review?.id || !platform) return
+    if (!shareModuleConfig.active) {
+      setAuthStatus("El módulo de compartir no está activo.")
+      return
+    }
+
+    const actionKey = `${review.id}:${platform}`
+    setSharingReviewKey(actionKey)
+
+    try {
+      const { reviewUrl, text } = buildReviewSharePayload(review)
+      openShareTarget({ platform, reviewUrl, text })
+
+      if (!token) {
+        setAuthStatus("Comparte iniciado. Inicia sesión para ganar puntos por compartir.")
+        return
+      }
+
+      const result = await apiFetch(`/reviews/${encodeURIComponent(review.id)}/share`, {
+        method: "POST",
+        body: JSON.stringify({ platform }),
+      })
+      const pointsAwarded = Number(result?.points_awarded || 0)
+      if (result?.already_shared) {
+        setAuthStatus(`Ya compartiste esta review en ${SHARE_PLATFORM_LABELS[platform] || platform}.`)
+      } else {
+        setAuthStatus(
+          pointsAwarded > 0
+            ? `¡Compartido! +${pointsAwarded} puntos.`
+            : "Compartido correctamente."
+        )
+      }
+      fetchLeaderboard(leaderMeta.page || 1)
+      if (activePage === "leaderboard") {
+        fetchFullLeaderboard(fullLeaderMeta.page || 1)
+      }
+    } catch (error) {
+      setAuthStatus(error?.message || "No se pudo registrar el share.")
+    } finally {
+      setSharingReviewKey("")
+      setShareMenuOpenKey("")
+    }
+  }
+
   const changeGridReviewImage = (reviewId, totalImages, delta) => {
     if (!reviewId || totalImages <= 1) return
     setGridReviewImageIndexById((prev) => {
@@ -1859,6 +2023,34 @@ function App() {
       }
     } finally {
       URL.revokeObjectURL(objectUrl)
+    }
+  }
+
+  const prepareModuleManifestFile = async (file) => {
+    const allowedMime = ["application/zip", "application/x-zip-compressed", "multipart/x-zip"]
+    const detectedMime = file.type || "application/zip"
+    if (!allowedMime.includes(detectedMime)) {
+      throw new Error("Formato inválido para módulo. Usa archivo .zip.")
+    }
+    if (file.size > 5_000_000) {
+      throw new Error("El módulo .zip excede el tamaño máximo permitido (5MB).")
+    }
+
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ""
+    const chunkSize = 0x8000
+    for (let index = 0; index < bytes.length; index += chunkSize) {
+      const chunk = bytes.subarray(index, index + chunkSize)
+      binary += String.fromCharCode(...chunk)
+    }
+    const base64Payload = btoa(binary)
+
+    const mimeType = detectedMime
+    const dataUrl = `data:${mimeType};base64,${base64Payload}`
+    return {
+      dataUrl,
+      mimeType,
+      fileName: file.name || "module.zip",
     }
   }
 
@@ -2137,6 +2329,82 @@ function App() {
     }
   }
 
+  const fetchAdminModules = async () => {
+    if (!isAdmin) return
+    setLoadingAdminModules(true)
+    setAdminStatus("")
+    try {
+      const result = await apiFetch("/admin/modules")
+      setAdminModules(Array.isArray(result?.data) ? result.data : [])
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo cargar la lista de módulos.")
+      setAdminModules([])
+    } finally {
+      setLoadingAdminModules(false)
+    }
+  }
+
+  const uploadModuleManifest = async (file) => {
+    if (!isAdmin) return
+    if (!file) return
+
+    setUploadingModuleManifest(true)
+    setAdminStatus("")
+    try {
+      const prepared = await prepareModuleManifestFile(file)
+      await apiFetch("/admin/modules", {
+        method: "POST",
+        body: JSON.stringify({
+          file_name: prepared.fileName,
+          mime_type: prepared.mimeType,
+          data_url: prepared.dataUrl,
+        }),
+      })
+      setAdminStatus("Módulo cargado correctamente. Actívalo para aplicar sus reglas.")
+      await fetchAdminModules()
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo subir el módulo.")
+    } finally {
+      setUploadingModuleManifest(false)
+    }
+  }
+
+  const activateAdminModule = async (moduleKey) => {
+    if (!isAdmin || !moduleKey) return
+    setModuleToggleActionKey(moduleKey)
+    setAdminStatus("")
+    try {
+      await apiFetch(`/admin/modules/${encodeURIComponent(moduleKey)}/activate`, {
+        method: "POST",
+      })
+      setAdminStatus(`Módulo ${moduleKey} activado correctamente.`)
+      await fetchAdminModules()
+      await fetchPublicWalletBranding()
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo activar el módulo.")
+    } finally {
+      setModuleToggleActionKey("")
+    }
+  }
+
+  const deactivateAdminModule = async (moduleKey) => {
+    if (!isAdmin || !moduleKey) return
+    setModuleToggleActionKey(moduleKey)
+    setAdminStatus("")
+    try {
+      await apiFetch(`/admin/modules/${encodeURIComponent(moduleKey)}/deactivate`, {
+        method: "POST",
+      })
+      setAdminStatus(`Módulo ${moduleKey} desactivado correctamente.`)
+      await fetchAdminModules()
+      await fetchPublicWalletBranding()
+    } catch (error) {
+      setAdminStatus(error?.message || "No se pudo desactivar el módulo.")
+    } finally {
+      setModuleToggleActionKey("")
+    }
+  }
+
   const fetchPendingModerationReviews = async ({
     status = moderationStatusFilter,
     search = moderationSearchApplied,
@@ -2250,7 +2518,19 @@ function App() {
           allow_global_category_search: Boolean(config.allow_global_category_search ?? true),
           require_profile_completion: Boolean(config.require_profile_completion ?? false),
           i18n_translations_json: config.i18n_translations_json || "",
+          share_points_bonus: Number(config.share_points_bonus ?? 0),
         })
+        if (config.review_share_module) {
+          setShareModuleConfig({
+            active: Boolean(config.review_share_module_active),
+            module_key: config.review_share_module.module_key || "review-share@1.0.0",
+            label_es: config.review_share_module.label_es || "Compartir",
+            label_en: config.review_share_module.label_en || "Share",
+            platforms: Array.isArray(config.review_share_module.platforms) && config.review_share_module.platforms.length > 0
+              ? config.review_share_module.platforms
+              : [...DEFAULT_SHARE_PLATFORMS],
+          })
+        }
       }
     } catch (error) {
       setAdminStatus(error?.message || "No se pudo cargar la configuración.")
@@ -2275,7 +2555,19 @@ function App() {
         allow_global_category_search: Boolean(config.allow_global_category_search ?? prev.allow_global_category_search ?? true),
         require_profile_completion: Boolean(config.require_profile_completion ?? prev.require_profile_completion ?? false),
         i18n_translations_json: config.i18n_translations_json || prev.i18n_translations_json || "",
+        share_points_bonus: Number(config.share_points_bonus ?? prev.share_points_bonus ?? 0),
       }))
+      if (config.review_share_module) {
+        setShareModuleConfig({
+          active: Boolean(config.review_share_module_active),
+          module_key: config.review_share_module.module_key || "review-share@1.0.0",
+          label_es: config.review_share_module.label_es || "Compartir",
+          label_en: config.review_share_module.label_en || "Share",
+          platforms: Array.isArray(config.review_share_module.platforms) && config.review_share_module.platforms.length > 0
+            ? config.review_share_module.platforms
+            : [...DEFAULT_SHARE_PLATFORMS],
+        })
+      }
     } catch {
       // Keep defaults if public config endpoint is unavailable.
     }
@@ -2415,6 +2707,7 @@ function App() {
         allow_global_category_search: Boolean(pointsConfig.allow_global_category_search),
         require_profile_completion: Boolean(pointsConfig.require_profile_completion),
         i18n_translations_json: pointsConfig.i18n_translations_json || null,
+        share_points_bonus: Number(pointsConfig.share_points_bonus || 0),
       }
 
       const updated = await apiFetch("/admin/config", {
@@ -2440,6 +2733,7 @@ function App() {
         allow_global_category_search: Boolean(updated.allow_global_category_search ?? true),
         require_profile_completion: Boolean(updated.require_profile_completion ?? false),
         i18n_translations_json: updated.i18n_translations_json || "",
+        share_points_bonus: Number(updated.share_points_bonus ?? 0),
       })
       setAdminStatus("Configuración actualizada.")
     } catch (error) {
@@ -3992,6 +4286,9 @@ function App() {
     if (activePage === "admin-config") {
       fetchPointsConfig()
     }
+    if (activePage === "admin-modules") {
+      fetchAdminModules()
+    }
   }, [activePage, isAdmin])
 
   useEffect(() => {
@@ -4020,6 +4317,56 @@ function App() {
       setReviewLocationMenuOpen(false)
     }
   }, [activePage])
+
+  const renderReviewShareActions = (review) => {
+    if (!shareModuleConfig.active || !review?.id) return null
+    const platforms = Array.isArray(shareModuleConfig.platforms) && shareModuleConfig.platforms.length > 0
+      ? shareModuleConfig.platforms
+      : DEFAULT_SHARE_PLATFORMS
+    const menuKey = String(review.id)
+    const isOpen = shareMenuOpenKey === menuKey
+
+    return (
+      <div className={`review-share-wrap ${isOpen ? "open" : ""}`}>
+        <button
+          type="button"
+          className="review-share-trigger"
+          onClick={() => setShareMenuOpenKey((prev) => (prev === menuKey ? "" : menuKey))}
+          aria-expanded={isOpen}
+          title={getShareLabel()}
+          aria-label={getShareLabel()}
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path fill="currentColor" d="M18 16a3 3 0 00-2.4 1.2l-6-3.1a3 3 0 000-2.2l6-3.1A3 3 0 1014.9 7l-6 3.1a3 3 0 100 5.8l6 3.1A3 3 0 1018 16z" />
+          </svg>
+        </button>
+        <div className={`review-share-actions ${isOpen ? "open" : ""}`}>
+          {platforms.map((platform) => {
+            const actionKey = `${review.id}:${platform}`
+            const isBusy = sharingReviewKey === actionKey
+            return (
+              <button
+                key={`${review.id}-share-${platform}`}
+                type="button"
+                className="review-share-platform-btn"
+                onClick={() => shareReviewToPlatform(review, platform)}
+                disabled={isBusy}
+                style={{ background: SHARE_PLATFORM_COLORS[platform] || "#374151" }}
+                title={SHARE_PLATFORM_LABELS[platform] || platform}
+                aria-label={SHARE_PLATFORM_LABELS[platform] || platform}
+              >
+                {isBusy ? (
+                  <span className="review-share-platform-loading">...</span>
+                ) : (
+                  renderSharePlatformIcon(platform)
+                )}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="app-shell">
@@ -5300,6 +5647,7 @@ function App() {
                   <div>
                     <strong>Description</strong>
                     <p className="review-detail-text">{selectedReview.description}</p>
+                    {renderReviewShareActions(selectedReview)}
                   </div>
                   {Array.isArray(selectedReview.tags) && selectedReview.tags.length > 0 && (
                     <div className="review-tags">
@@ -6102,6 +6450,16 @@ function App() {
                       setPointsConfig({ ...pointsConfig, max_review_tags: event.target.value })
                     }
                   />
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    placeholder="share_points_bonus"
+                    value={pointsConfig.share_points_bonus}
+                    onChange={(event) =>
+                      setPointsConfig({ ...pointsConfig, share_points_bonus: event.target.value })
+                    }
+                  />
                   <label style={{ display: "flex", gap: "8px", alignItems: "center" }}>
                     <input
                       type="checkbox"
@@ -6210,6 +6568,111 @@ function App() {
               <button className="primary-button" onClick={updateAdminPointsConfig} disabled={loadingPointsConfig}>
                 Guardar configuración
               </button>
+              {adminStatus && (
+                <div style={{ marginTop: "12px", color: "#e85151" }}>
+                  {adminStatus}
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        {activePage === "admin-modules" && isAdmin && (
+          <div className="grid">
+            <section className="panel" style={{ gridColumn: "1 / 2" }}>
+              <div className="panel-header">
+                <h3 className="panel-title">Módulos de extensión</h3>
+                <span className="pill">Admin</span>
+              </div>
+              <p style={{ marginTop: 0, color: "#6b7280" }}>
+                Sube módulos en archivo .zip. El paquete debe incluir un manifest.json o module.json válido.
+              </p>
+              <div className="input-group" style={{ marginBottom: "14px" }}>
+                <label style={{ fontWeight: 600 }}>Subir módulo (.zip)</label>
+                <FileUpload
+                  accept="application/zip,application/x-zip-compressed,.zip"
+                  onFile={(file) => uploadModuleManifest(file)}
+                  disabled={uploadingModuleManifest}
+                  buttonText="Subir módulo"
+                />
+                {uploadingModuleManifest && <p>Subiendo módulo...</p>}
+              </div>
+
+              {loadingAdminModules ? (
+                <p>Cargando módulos...</p>
+              ) : (
+                <div style={{ display: "grid", gap: "10px" }}>
+                  {adminModules.map((item) => (
+                    <div
+                      key={item.module_key}
+                      style={{
+                        border: "1px solid #e5e7eb",
+                        borderRadius: "10px",
+                        padding: "12px",
+                        background: "#fff",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", gap: "12px", alignItems: "center" }}>
+                        <div>
+                          <strong>{item.module_key}</strong>
+                          <div style={{ color: "#6b7280", fontSize: "0.9rem" }}>
+                            estado: {item.status} · orden: {Number(item.execution_order || 100)}
+                          </div>
+                          {item.description ? (
+                            <p style={{ margin: "6px 0 0", color: "#374151", fontSize: "0.92rem" }}>{item.description}</p>
+                          ) : null}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={item.status === "active"}
+                            onClick={() =>
+                              item.status === "active"
+                                ? deactivateAdminModule(item.module_key)
+                                : activateAdminModule(item.module_key)
+                            }
+                            disabled={moduleToggleActionKey === item.module_key}
+                            style={{
+                              position: "relative",
+                              width: "50px",
+                              height: "28px",
+                              border: "1px solid #d1d5db",
+                              borderRadius: "999px",
+                              background: item.status === "active" ? "#16a34a" : "#e5e7eb",
+                              cursor: moduleToggleActionKey === item.module_key ? "not-allowed" : "pointer",
+                              transition: "background 180ms ease",
+                            }}
+                            title={item.status === "active" ? "Desactivar módulo" : "Activar módulo"}
+                          >
+                            <span
+                              style={{
+                                position: "absolute",
+                                top: "3px",
+                                left: item.status === "active" ? "25px" : "3px",
+                                width: "20px",
+                                height: "20px",
+                                borderRadius: "50%",
+                                background: "#fff",
+                                boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+                                transition: "left 180ms ease",
+                              }}
+                            />
+                          </button>
+                          <span style={{ fontSize: "0.9rem", color: "#374151", minWidth: "92px" }}>
+                            {moduleToggleActionKey === item.module_key
+                              ? "Procesando..."
+                              : item.status === "active"
+                                ? "Activado"
+                                : "Desactivado"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {!adminModules.length && <p>No hay módulos cargados.</p>}
+                </div>
+              )}
               {adminStatus && (
                 <div style={{ marginTop: "12px", color: "#e85151" }}>
                   {adminStatus}

@@ -26,6 +26,8 @@ const { ApiError } = require('../middlewares/errorHandler');
 const { hashReviewPayload } = require('../utils/hash');
 const { getCurrentConfig } = require('../repositories/pointsConfigRepository');
 const { findByUserAndKey, saveResponse } = require('../repositories/idempotencyRepository');
+const { findShareByUserReviewAndPlatform, createReviewShare } = require('../repositories/reviewShareRepository');
+const { systemModuleService, REVIEW_SHARE_MODULE_KEY, REVIEW_SHARE_PLATFORMS } = require('./systemModuleService');
 
 const idempotencyCache = new Map();
 const DEFAULT_MAX_REVIEW_TAGS = 5;
@@ -185,12 +187,20 @@ async function createReviewService({
     }
   }
 
-  const points_awarded = computePoints({
+  const basePointsAwarded = computePoints({
     description,
     stars,
     price,
     evidenceCount: evidence_images.length,
     config,
+  });
+  const { points: points_awarded } = await systemModuleService.applyPointAdjustments({
+    basePoints: basePointsAwarded,
+    description,
+    stars,
+    price,
+    evidenceCount: evidence_images.length,
+    tags,
   });
 
   const hashPayload = {
@@ -627,12 +637,20 @@ async function approveReviewSubmissionService({ submissionId, actorId }) {
     throw new ApiError(500, 'points configuration missing');
   }
 
-  const pointsAwarded = computePoints({
+  const basePointsAwarded = computePoints({
     description: submission.description,
     stars: submission.stars,
     price: Number(submission.price),
     evidenceCount: Array.isArray(submission.evidence_images) ? submission.evidence_images.length : 0,
     config,
+  });
+  const { points: pointsAwarded } = await systemModuleService.applyPointAdjustments({
+    basePoints: basePointsAwarded,
+    description: submission.description,
+    stars: submission.stars,
+    price: Number(submission.price),
+    evidenceCount: Array.isArray(submission.evidence_images) ? submission.evidence_images.length : 0,
+    tags: submission.tags,
   });
 
   const response = await withTransaction(async (client) => {
@@ -685,6 +703,71 @@ async function approveReviewSubmissionService({ submissionId, actorId }) {
   return response;
 }
 
+async function shareReviewService({ reviewId, userId, platform }) {
+  const normalizedPlatform = String(platform || '').trim().toLowerCase();
+  if (!REVIEW_SHARE_PLATFORMS.includes(normalizedPlatform)) {
+    throw new ApiError(400, `platform must be one of: ${REVIEW_SHARE_PLATFORMS.join(', ')}`);
+  }
+
+  const moduleEnabled = await systemModuleService.isModuleActive(REVIEW_SHARE_MODULE_KEY);
+  if (!moduleEnabled) {
+    throw new ApiError(409, 'review share module is not active');
+  }
+
+  const review = await findCoreById({ query }, reviewId);
+  if (!review) {
+    throw new ApiError(404, 'review not found');
+  }
+
+  const existing = await findShareByUserReviewAndPlatform({ query }, {
+    userId,
+    reviewId,
+    platform: normalizedPlatform,
+  });
+  if (existing) {
+    return {
+      review_id: reviewId,
+      platform: normalizedPlatform,
+      points_awarded: 0,
+      already_shared: true,
+      share_recorded_at: existing.created_at,
+    };
+  }
+
+  const config = await getCurrentConfig({ query });
+  const shareBonus = Math.max(0, Number(config?.share_points_bonus ?? 0));
+
+  try {
+    const created = await createReviewShare({ query }, {
+      reviewId,
+      userId,
+      platform: normalizedPlatform,
+      sharePointsAwarded: shareBonus,
+    });
+    return {
+      review_id: reviewId,
+      platform: normalizedPlatform,
+      points_awarded: Number(created?.share_points_awarded ?? 0),
+      already_shared: false,
+      share_recorded_at: created?.created_at || null,
+    };
+  } catch (err) {
+    if (err.code === '23505') {
+      return {
+        review_id: reviewId,
+        platform: normalizedPlatform,
+        points_awarded: 0,
+        already_shared: true,
+        share_recorded_at: null,
+      };
+    }
+    if (err.code === '23514' || err.code === '23502') {
+      throw new ApiError(400, 'invalid share payload');
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   reviewService: {
     createReview: createReviewService,
@@ -699,5 +782,6 @@ module.exports = {
     countReviewsByUserId: countReviewsByUserIdService,
     shouldRequireReviewCaptcha: shouldRequireReviewCaptchaService,
     getDailyReviewLimitStatus: getDailyReviewLimitStatusService,
+    shareReview: shareReviewService,
   },
 };

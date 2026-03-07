@@ -715,6 +715,33 @@ async function rejectReviewSubmission(req, res, next) {
   }
 }
 
+async function shareReview(req, res, next) {
+  try {
+    const { id } = req.params;
+    const userId = req.auth?.sub;
+    const platform = String(req.body?.platform || '').trim().toLowerCase();
+
+    if (!isValidUuid(id)) {
+      throw new ApiError(400, 'id must be a UUID');
+    }
+    if (!isValidUuid(userId)) {
+      throw new ApiError(401, 'invalid token');
+    }
+    if (!isNonEmptyString(platform)) {
+      throw new ApiError(400, 'platform is required');
+    }
+
+    const result = await reviewService.shareReview({
+      reviewId: id,
+      userId,
+      platform,
+    });
+    res.status(200).json(result);
+  } catch (err) {
+    next(err);
+  }
+}
+
 module.exports = {
   createReview,
   createReviewSubmission,
@@ -728,4 +755,5 @@ module.exports = {
   listPendingReviewSubmissions,
   approveReviewSubmission,
   rejectReviewSubmission,
+  shareReview,
 };

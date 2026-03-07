@@ -1,5 +1,6 @@
 const crypto = require('crypto');
 const { pointsConfigService } = require('../services/pointsConfigService');
+const { systemModuleService } = require('../services/systemModuleService');
 const { uploadImageDataUrl } = require('../services/fileStorageService');
 const { ApiError } = require('../middlewares/errorHandler');
 const { isNonEmptyString, isValidUrl } = require('../utils/validation');
@@ -15,6 +16,7 @@ const FIELDS = [
   'price_points_gte_100',
   'max_reviews_per_establishment_per_day',
   'max_review_tags',
+  'share_points_bonus',
 ];
 const BOOLEAN_FIELDS = [
   'search_saved_establishments_enabled',
@@ -47,6 +49,9 @@ function validatePayload(payload) {
   }
   if (payload.max_review_tags < 1) {
     return 'max_review_tags must be >= 1';
+  }
+  if (payload.share_points_bonus < 0) {
+    return 'share_points_bonus must be >= 0';
   }
   if (
     payload.default_user_avatar_url != null &&
@@ -95,7 +100,12 @@ function validatePayload(payload) {
 async function getPointsConfig(req, res, next) {
   try {
     const config = await pointsConfigService.getPointsConfig();
-    res.status(200).json(config || {});
+    const shareModuleConfig = await systemModuleService.getReviewShareModuleConfig();
+    res.status(200).json({
+      ...(config || {}),
+      review_share_module_active: Boolean(shareModuleConfig?.active),
+      review_share_module: shareModuleConfig || null,
+    });
   } catch (err) {
     next(err);
   }
