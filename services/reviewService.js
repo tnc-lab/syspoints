@@ -27,7 +27,7 @@ const { hashReviewPayload } = require('../utils/hash');
 const { getCurrentConfig } = require('../repositories/pointsConfigRepository');
 const { findByUserAndKey, saveResponse } = require('../repositories/idempotencyRepository');
 const { findShareByUserReviewAndPlatform, createReviewShare } = require('../repositories/reviewShareRepository');
-const { systemModuleService, REVIEW_SHARE_MODULE_KEY, REVIEW_SHARE_PLATFORMS } = require('./systemModuleService');
+const { systemModuleService, REVIEW_SHARE_PLATFORMS } = require('./systemModuleService');
 
 const idempotencyCache = new Map();
 const DEFAULT_MAX_REVIEW_TAGS = 5;
@@ -709,8 +709,8 @@ async function shareReviewService({ reviewId, userId, platform }) {
     throw new ApiError(400, `platform must be one of: ${REVIEW_SHARE_PLATFORMS.join(', ')}`);
   }
 
-  const moduleEnabled = await systemModuleService.isModuleActive(REVIEW_SHARE_MODULE_KEY);
-  if (!moduleEnabled) {
+  const activeShareModule = await systemModuleService.getActiveReviewShareModule();
+  if (!activeShareModule) {
     throw new ApiError(409, 'review share module is not active');
   }
 

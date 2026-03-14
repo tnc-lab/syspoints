@@ -9,10 +9,9 @@ const {
   deactivateModule,
 } = require('../repositories/systemModuleRepository');
 const { ApiError } = require('../middlewares/errorHandler');
-const { extractManifestFromZipBuffer, saveModuleArchive } = require('./moduleArchiveService');
+const { extractManifestFromZipBuffer, saveModuleBundle } = require('./moduleArchiveService');
 
 const MODULE_ENGINE = 'syspoints-module-v1';
-const REVIEW_SHARE_MODULE_KEY = 'review-share@1.0.0';
 const REVIEW_SHARE_PLATFORMS = ['telegram', 'x', 'whatsapp', 'linkedin', 'facebook', 'instagram'];
 
 const MODULE_NAME_REGEX = /^[a-z0-9][a-z0-9._-]{1,49}$/;
@@ -347,9 +346,9 @@ async function uploadModuleArchive({ zipBuffer, uploadedBy }) {
     throw new ApiError(409, 'module already exists for this name/version');
   }
 
-  let archivePath = null;
+  let savedBundle = null;
   try {
-    archivePath = await saveModuleArchive({ moduleKey, zipBuffer });
+    savedBundle = await saveModuleBundle({ moduleKey, zipBuffer });
     const created = await insertModule({ query }, {
       module_key: moduleKey,
       name: normalizedManifest.name,
@@ -363,15 +362,16 @@ async function uploadModuleArchive({ zipBuffer, uploadedBy }) {
     });
     return {
       ...formatModule(created),
-      archive_path: archivePath,
+      archive_path: savedBundle.archive_path,
+      module_dir: savedBundle.module_dir,
     };
   } catch (err) {
-    if (archivePath) {
+    if (savedBundle?.module_dir) {
       const fs = require('fs/promises');
-      await fs.unlink(archivePath).catch(() => {});
+      await fs.rm(savedBundle.module_dir, { recursive: true, force: true }).catch(() => {});
     }
     if (err.code === 'EEXIST') {
-      throw new ApiError(409, 'module archive already exists in modules directory');
+      throw new ApiError(409, 'module directory already exists in modules');
     }
     if (err.code === '23505') {
       throw new ApiError(409, 'module already exists for this name/version');
@@ -408,13 +408,22 @@ async function isModuleActive(moduleKey) {
   return activeModules.some((item) => item.module_key === moduleKey);
 }
 
-async function getReviewShareModuleConfig() {
+async function getActiveReviewShareModule() {
   const activeModules = await getActiveModulesCached();
-  const shareModule = activeModules.find((item) => item.module_key === REVIEW_SHARE_MODULE_KEY);
+  return activeModules.find((item) => {
+    const permissions = Array.isArray(item?.manifest?.permissions) ? item.manifest.permissions : [];
+    const hasSharePermission = permissions.includes('review:share');
+    const hasShareHook = Boolean(item?.manifest?.hooks?.review_share);
+    return hasSharePermission && hasShareHook;
+  }) || null;
+}
+
+async function getReviewShareModuleConfig() {
+  const shareModule = await getActiveReviewShareModule();
   if (!shareModule) {
     return {
       active: false,
-      module_key: REVIEW_SHARE_MODULE_KEY,
+      module_key: null,
       label_es: 'Compartir',
       label_en: 'Share',
       platforms: [...REVIEW_SHARE_PLATFORMS],
@@ -485,7 +494,6 @@ async function applyPointAdjustments({
 }
 
 module.exports = {
-  REVIEW_SHARE_MODULE_KEY,
   REVIEW_SHARE_PLATFORMS,
   systemModuleService: {
     listAllModules,
@@ -494,6 +502,7 @@ module.exports = {
     activateModuleByKey,
     deactivateModuleByKey,
     isModuleActive,
+    getActiveReviewShareModule,
     getReviewShareModuleConfig,
     applyPointAdjustments,
     normalizeAndValidateManifest,
