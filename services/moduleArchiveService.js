@@ -1,13 +1,12 @@
 const fs = require('fs/promises');
-const os = require('os');
 const path = require('path');
 const { randomUUID } = require('crypto');
-const { execFile } = require('child_process');
-const { promisify } = require('util');
+const AdmZip = require('adm-zip');
 const { ApiError } = require('../middlewares/errorHandler');
 
-const execFileAsync = promisify(execFile);
 const MAX_MANIFEST_BYTES = 250_000;
+const MAX_ZIP_ENTRY_BYTES = 5_000_000;
+const MAX_ZIP_ENTRY_COUNT = 500;
 
 function getModulesBaseDir() {
   if (process.env.MODULES_DIR) {
@@ -21,11 +20,59 @@ async function ensureModulesBaseDir() {
   return getModulesBaseDir();
 }
 
-function sanitizeModuleFileName(moduleKey) {
+function sanitizeModuleFolderName(moduleKey) {
   return String(moduleKey || '')
     .trim()
     .replace(/[^a-zA-Z0-9._@-]/g, '_')
     .slice(0, 120) || `module-${randomUUID()}`;
+}
+
+function normalizeZipEntryName(entryName) {
+  return String(entryName || '')
+    .replace(/\\/g, '/')
+    .replace(/^\/+/, '');
+}
+
+function assertSafeZipEntryPath(entryName) {
+  const normalized = normalizeZipEntryName(entryName);
+  if (!normalized || normalized.endsWith('/')) return null;
+  if (normalized.includes('..')) {
+    throw new ApiError(400, `zip contains unsafe path: ${entryName}`);
+  }
+  if (path.isAbsolute(normalized)) {
+    throw new ApiError(400, `zip contains absolute path: ${entryName}`);
+  }
+  return normalized;
+}
+
+function findManifestEntry(entries) {
+  const candidates = entries.filter((entry) => {
+    const normalized = normalizeZipEntryName(entry.entryName).toLowerCase();
+    return (
+      normalized.endsWith('/manifest.json') ||
+      normalized.endsWith('/module.json') ||
+      normalized === 'manifest.json' ||
+      normalized === 'module.json'
+    );
+  });
+
+  if (candidates.length === 0) {
+    throw new ApiError(400, 'zip must include manifest.json or module.json');
+  }
+
+  return candidates.sort((a, b) => a.entryName.length - b.entryName.length)[0];
+}
+
+function getZipEntries(zipBuffer) {
+  const zip = new AdmZip(zipBuffer);
+  const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
+  if (entries.length === 0) {
+    throw new ApiError(400, 'zip is empty');
+  }
+  if (entries.length > MAX_ZIP_ENTRY_COUNT) {
+    throw new ApiError(400, `zip contains too many files (max ${MAX_ZIP_ENTRY_COUNT})`);
+  }
+  return entries;
 }
 
 async function extractManifestFromZipBuffer(zipBuffer) {
@@ -33,33 +80,18 @@ async function extractManifestFromZipBuffer(zipBuffer) {
     throw new ApiError(400, 'zip file is required');
   }
 
-  const tempFile = path.join(os.tmpdir(), `syspoints-module-${randomUUID()}.zip`);
-  await fs.writeFile(tempFile, zipBuffer);
-
   try {
-    const { stdout: listStdout } = await execFileAsync('unzip', ['-Z1', tempFile], { maxBuffer: 2 * 1024 * 1024 });
-    const entries = String(listStdout || '')
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    const manifestCandidates = entries.filter((entry) => {
-      const normalized = entry.replace(/\\/g, '/').toLowerCase();
-      if (normalized.endsWith('/')) return false;
-      return normalized.endsWith('/manifest.json') || normalized.endsWith('/module.json') || normalized === 'manifest.json' || normalized === 'module.json';
-    });
-
-    if (manifestCandidates.length === 0) {
-      throw new ApiError(400, 'zip must include manifest.json or module.json');
+    const entries = getZipEntries(zipBuffer);
+    const manifestEntry = findManifestEntry(entries);
+    const manifestBuffer = manifestEntry.getData();
+    if (!manifestBuffer || manifestBuffer.length === 0) {
+      throw new ApiError(400, 'manifest file is empty');
+    }
+    if (manifestBuffer.length > MAX_MANIFEST_BYTES) {
+      throw new ApiError(400, `manifest must be <= ${MAX_MANIFEST_BYTES} bytes`);
     }
 
-    const manifestEntry = manifestCandidates.sort((a, b) => a.length - b.length)[0];
-    const { stdout: manifestStdout } = await execFileAsync('unzip', ['-p', tempFile, manifestEntry], {
-      maxBuffer: MAX_MANIFEST_BYTES,
-      encoding: 'utf8',
-    });
-
-    const manifestText = String(manifestStdout || '').trim();
+    const manifestText = manifestBuffer.toString('utf8').trim();
     if (!manifestText) {
       throw new ApiError(400, 'manifest file is empty');
     }
@@ -71,31 +103,59 @@ async function extractManifestFromZipBuffer(zipBuffer) {
     }
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    if (/maxBuffer/i.test(String(error?.message || ''))) {
-      throw new ApiError(400, `manifest must be <= ${MAX_MANIFEST_BYTES} bytes`);
-    }
-    throw new ApiError(400, 'failed to read zip manifest. Ensure unzip is available and archive is valid');
-  } finally {
-    await fs.unlink(tempFile).catch(() => {});
+    throw new ApiError(400, `failed to read zip manifest: ${String(error?.message || 'invalid archive')}`);
   }
 }
 
-async function saveModuleArchive({ moduleKey, zipBuffer }) {
+async function saveModuleBundle({ moduleKey, zipBuffer }) {
   if (!Buffer.isBuffer(zipBuffer) || zipBuffer.length === 0) {
     throw new ApiError(400, 'zip file is required');
   }
 
   const baseDir = await ensureModulesBaseDir();
-  const safeFileName = `${sanitizeModuleFileName(moduleKey)}.zip`;
-  const archivePath = path.join(baseDir, safeFileName);
+  const moduleFolderName = sanitizeModuleFolderName(moduleKey);
+  const moduleDir = path.join(baseDir, moduleFolderName);
 
-  await fs.writeFile(archivePath, zipBuffer, { flag: 'wx' });
-  return archivePath;
+  await fs.mkdir(moduleDir, { recursive: false });
+
+  try {
+    const archivePath = path.join(moduleDir, 'module.zip');
+    await fs.writeFile(archivePath, zipBuffer, { flag: 'wx' });
+
+    const entries = getZipEntries(zipBuffer);
+    for (const entry of entries) {
+      const safeRelativePath = assertSafeZipEntryPath(entry.entryName);
+      if (!safeRelativePath) continue;
+
+      const entryBuffer = entry.getData();
+      if (entryBuffer.length > MAX_ZIP_ENTRY_BYTES) {
+        throw new ApiError(400, `zip entry too large: ${safeRelativePath}`);
+      }
+
+      const targetPath = path.join(moduleDir, safeRelativePath);
+      const normalizedTarget = path.normalize(targetPath);
+      const normalizedModuleDir = path.normalize(moduleDir + path.sep);
+      if (!normalizedTarget.startsWith(normalizedModuleDir)) {
+        throw new ApiError(400, `zip contains unsafe extraction path: ${safeRelativePath}`);
+      }
+
+      await fs.mkdir(path.dirname(targetPath), { recursive: true });
+      await fs.writeFile(targetPath, entryBuffer, { flag: 'wx' });
+    }
+
+    return {
+      module_dir: moduleDir,
+      archive_path: archivePath,
+    };
+  } catch (err) {
+    await fs.rm(moduleDir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 module.exports = {
   getModulesBaseDir,
   ensureModulesBaseDir,
   extractManifestFromZipBuffer,
-  saveModuleArchive,
+  saveModuleBundle,
 };

@@ -27,7 +27,7 @@ Esto permite extender funcionalidades sin comprometer el servidor.
 - Hash SHA-256 del manifiesto guardado para auditoría.
 - Activación/desactivación solo por endpoints admin autenticados.
 - Puntos finales acotados en backend (`min 0`, `max 1000`).
-- Cada módulo subido se guarda en disco en la carpeta `modules/`.
+- Cada módulo subido se guarda y extrae en disco en su carpeta propia: `modules/<module_key>/`.
 
 ## Estructura del .zip
 
